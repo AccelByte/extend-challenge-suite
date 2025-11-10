@@ -7,6 +7,15 @@ set +e  # Don't exit on error - we want to run all tests
 
 # Load helpers
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Load .env file if it exists (ensures env vars are available to all test scripts)
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    echo "Loading environment variables from .env..."
+    set -a
+    source "$SCRIPT_DIR/.env"
+    set +a
+fi
+
 source "$SCRIPT_DIR/helpers.sh"
 
 # Color codes
