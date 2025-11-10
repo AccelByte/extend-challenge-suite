@@ -143,6 +143,10 @@ go run main.go challenges claim daily-quests daily-login
 
 ### 6. Run End-to-End Tests
 
+**Prerequisites**: Before running E2E tests, you must create required AGS items in your namespace. Follow [AGS_SETUP_GUIDE.md](AGS_SETUP_GUIDE.md) Step 4 to create:
+- Items: `winter_sword`, `loyalty_badge`, `daily_chest` (INGAMEITEM, entitleable, active)
+- Currencies: `GOLD`, `GEMS` (VIRTUAL, published)
+
 ```bash
 # Run all E2E tests
 make test-e2e
