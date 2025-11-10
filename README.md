@@ -199,6 +199,12 @@ extend-challenge-suite/
 │   ├── test-*.sh                 # Test scripts
 │   └── helpers.sh                # Test utilities
 │
+├── tests/loadtest/                # ⚡ Load testing suite (k6)
+│   ├── README.md                  # Load testing guide
+│   ├── k6/                        # k6 test scripts
+│   ├── fixtures/                  # Test data (users, tokens, challenges)
+│   └── scripts/                   # Helper scripts
+│
 ├── docker-compose.yml             # 🐳 Local development orchestration
 ├── docker-compose.test.yml       # Test environment
 ├── Makefile                       # Build and orchestration commands
@@ -314,7 +320,38 @@ make test-e2e-multiuser    # Multi-user isolation
 
 **Test Coverage**: 95%+ comprehensive coverage across unit, integration, and E2E tests.
 
-See [tests/e2e/README.md](tests/e2e/README.md) for detailed testing guide.
+See [tests/e2e/README.md](tests/e2e/README.md) for detailed E2E testing guide.
+
+### Load Testing
+
+Performance and load testing with k6:
+
+```bash
+cd tests/loadtest
+
+# Generate test fixtures
+./scripts/generate_users.sh
+./scripts/generate_challenges.sh
+MOCK_MODE=true ./scripts/generate_tokens.sh
+
+# Run individual scenarios
+K6_WEB_DASHBOARD=true TARGET_RPS=500 k6 run k6/scenario1_api_load.js
+K6_WEB_DASHBOARD=true TARGET_EPS=1000 k6 run k6/scenario2_event_load.js
+K6_WEB_DASHBOARD=true TARGET_RPS=200 TARGET_EPS=1000 k6 run k6/scenario3_combined.js
+
+# Or run all scenarios (6-12 hours)
+./scripts/run_all_scenarios.sh
+```
+
+**Load Test Capabilities**:
+- API load testing up to 5,000 RPS
+- Event processing load up to 10,000 EPS
+- Combined load testing (API + Events)
+- Real-time monitoring with k6 web dashboard
+- Database performance analysis
+- pprof CPU and memory profiling
+
+See [tests/loadtest/README.md](tests/loadtest/README.md) for detailed load testing guide.
 
 ---
 
