@@ -1,0 +1,114 @@
+# Challenge Service - Local Development Environment
+# Includes: PostgreSQL, Redis, Backend Service, Event Handler
+# Usage: docker-compose up -d
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: challenge-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-challenge_db}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+        reservations:
+          cpus: '2.0'
+          memory: 2G
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d challenge_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # Enable pg_stat_statements for performance monitoring
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_preload_libraries=pg_stat_statements"
+      - "-c"
+      - "pg_stat_statements.track=all"
+
+  redis:
+    image: redis:7-alpine
+    container_name: challenge-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend Service (REST API + gRPC)
+  challenge-service:
+    build: ./extend-challenge-service
+    image: challenge-service:0.0.1
+    container_name: challenge-service
+    ports:
+      - "6565:6565"  # gRPC
+      - "8000:8000"  # gRPC Gateway
+      - "8080:8080"  # Prometheus metrics / REST API
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      - MOCK_AGS=true
+      - MOCK_AGS_LATENCY_MIN_MS=50
+      - MOCK_AGS_LATENCY_MAX_MS=200
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    restart: unless-stopped
+
+  # Event Handler (gRPC)
+  # Note: Event handler tested via direct gRPC calls (no Kafka needed locally)
+  # In production, AGS Extend platform provides Kafka and delivers events via gRPC
+  challenge-event-handler:
+    build: ./extend-challenge-event-handler
+    image: challenge-event-handler:0.0.1
+    container_name: challenge-event-handler
+    ports:
+      - "6566:6565"  # gRPC (different host port to avoid conflict with backend)
+      - "8081:8080"  # Prometheus metrics (different host port to avoid conflict)
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      - BUFFER_FLUSH_INTERVAL=1s
+      - BUFFER_SIZE_LIMIT=100000
+      - FLUSH_WORKERS=8  # Phase 4: Parallel flush workers (8 workers = 21,600 updates/sec capacity)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
