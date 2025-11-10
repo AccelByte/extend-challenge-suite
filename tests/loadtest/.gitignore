@@ -1,0 +1,7 @@
+# Ignore test results (large files)
+results/**/*.json
+results/**/*.txt
+results/**/*.log
+
+# Keep directory structure with .gitkeep files
+!results/**/.gitkeep
