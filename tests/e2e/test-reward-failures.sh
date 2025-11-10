@@ -242,24 +242,26 @@ cleanup_test_data
 
 echo "  Completing and claiming 3 different goals..."
 
-# Goal 1: daily-login
+# Goal 1: login-today (daily goal, from daily-quests)
 run_cli trigger-event login
 wait_for_flush 2
-CLAIM_1=$(run_cli claim-reward "$CHALLENGE_ID" "daily-login" --format=json)
+CLAIM_1=$(run_cli claim-reward "$CHALLENGE_ID" "login-today" --format=json)
 CLAIM_1_STATUS=$(extract_json_value "$CLAIM_1" '.status')
 assert_equals "success" "$CLAIM_1_STATUS" "First claim should succeed"
 
-# Goal 2: win-1-match (absolute goal)
-run_cli trigger-event stat-update --stat-code=matches_won --value=1
+# Goal 2: play-3-matches (daily goal, from daily-quests)
+run_cli trigger-event stat-update --stat-code=matches_played --value=3
 wait_for_flush 2
-CLAIM_2=$(run_cli claim-reward "$CHALLENGE_ID" "win-1-match" --format=json)
+CLAIM_2=$(run_cli claim-reward "$CHALLENGE_ID" "play-3-matches" --format=json)
 CLAIM_2_STATUS=$(extract_json_value "$CLAIM_2" '.status')
 assert_equals "success" "$CLAIM_2_STATUS" "Second claim should succeed"
 
-# Goal 3: play-3-matches (absolute goal)
-run_cli trigger-event stat-update --stat-code=matches_played --value=3
+# Goal 3: complete-tutorial (absolute goal, from winter-challenge-2025)
+# Switch to winter-challenge for third test
+CHALLENGE_ID_WINTER="winter-challenge-2025"
+run_cli trigger-event stat-update --stat-code=tutorial_completed --value=1
 wait_for_flush 2
-CLAIM_3=$(run_cli claim-reward "$CHALLENGE_ID" "play-3-matches" --format=json)
+CLAIM_3=$(run_cli claim-reward "$CHALLENGE_ID_WINTER" "complete-tutorial" --format=json)
 CLAIM_3_STATUS=$(extract_json_value "$CLAIM_3" '.status')
 assert_equals "success" "$CLAIM_3_STATUS" "Third claim should succeed"
 

@@ -42,7 +42,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration (can be overridden by environment variables)
-DEMO_APP="${DEMO_APP:-./extend-challenge-demo-app/bin/challenge-demo}"
+DEMO_APP="${DEMO_APP:-../../extend-challenge-demo-app/bin/challenge-demo}"
 USER_ID="${USER_ID:-test-user-e2e}"
 NAMESPACE="${NAMESPACE:-test}"
 BACKEND_URL="${BACKEND_URL:-http://localhost:8000/challenge}"
@@ -73,9 +73,14 @@ assert_equals() {
     local message="$3"
 
     if [ "$expected" != "$actual" ]; then
-        echo -e "${RED}❌ FAIL${NC}: $message"
-        echo "  Expected: $expected"
-        echo "  Actual:   $actual"
+        echo ""
+        echo -e "${RED}❌ ASSERTION FAILED${NC}"
+        if [ -n "$CURRENT_TEST_STEP" ]; then
+            echo -e "  ${BLUE}During:${NC} $CURRENT_TEST_STEP"
+        fi
+        echo -e "  ${BLUE}Message:${NC} $message"
+        echo -e "  ${BLUE}Expected:${NC} $expected"
+        echo -e "  ${BLUE}Actual:${NC}   $actual"
         exit 1
     fi
     echo -e "${GREEN}✅ PASS${NC}: $message"
@@ -88,8 +93,13 @@ assert_not_equals() {
     local message="$3"
 
     if [ "$expected" == "$actual" ]; then
-        echo -e "${RED}❌ FAIL${NC}: $message"
-        echo "  Should not equal: $expected"
+        echo ""
+        echo -e "${RED}❌ ASSERTION FAILED${NC}"
+        if [ -n "$CURRENT_TEST_STEP" ]; then
+            echo -e "  ${BLUE}During:${NC} $CURRENT_TEST_STEP"
+        fi
+        echo -e "  ${BLUE}Message:${NC} $message"
+        echo -e "  ${BLUE}Should not equal:${NC} $expected"
         exit 1
     fi
     echo -e "${GREEN}✅ PASS${NC}: $message"
@@ -102,9 +112,14 @@ assert_contains() {
     local message="$3"
 
     if [[ "$haystack" != *"$needle"* ]]; then
-        echo -e "${RED}❌ FAIL${NC}: $message"
-        echo "  String: $haystack"
-        echo "  Should contain: $needle"
+        echo ""
+        echo -e "${RED}❌ ASSERTION FAILED${NC}"
+        if [ -n "$CURRENT_TEST_STEP" ]; then
+            echo -e "  ${BLUE}During:${NC} $CURRENT_TEST_STEP"
+        fi
+        echo -e "  ${BLUE}Message:${NC} $message"
+        echo -e "  ${BLUE}String:${NC} $haystack"
+        echo -e "  ${BLUE}Should contain:${NC} $needle"
         exit 1
     fi
     echo -e "${GREEN}✅ PASS${NC}: $message"
@@ -117,9 +132,14 @@ assert_gte() {
     local message="$3"
 
     if [ "$actual" -lt "$expected" ]; then
-        echo -e "${RED}❌ FAIL${NC}: $message"
-        echo "  Expected: >= $expected"
-        echo "  Actual:   $actual"
+        echo ""
+        echo -e "${RED}❌ ASSERTION FAILED${NC}"
+        if [ -n "$CURRENT_TEST_STEP" ]; then
+            echo -e "  ${BLUE}During:${NC} $CURRENT_TEST_STEP"
+        fi
+        echo -e "  ${BLUE}Message:${NC} $message"
+        echo -e "  ${BLUE}Expected:${NC} >= $expected"
+        echo -e "  ${BLUE}Actual:${NC}   $actual"
         exit 1
     fi
     echo -e "${GREEN}✅ PASS${NC}: $message"
@@ -129,7 +149,25 @@ assert_gte() {
 extract_json_value() {
     local json="$1"
     local jq_filter="$2"
-    echo "$json" | jq -r "$jq_filter"
+    
+    # Check if json is empty
+    if [ -z "$json" ]; then
+        echo -e "${RED}❌ ERROR${NC}: Empty JSON response" >&2
+        echo -e "  Filter: $jq_filter" >&2
+        return 1
+    fi
+    
+    # Try to parse JSON and capture errors
+    local result
+    if ! result=$(echo "$json" | jq -r "$jq_filter" 2>&1); then
+        echo -e "${RED}❌ ERROR${NC}: Failed to parse JSON" >&2
+        echo -e "  Filter: $jq_filter" >&2
+        echo -e "  JSON: ${json:0:200}..." >&2
+        echo -e "  jq error: $result" >&2
+        return 1
+    fi
+    
+    echo "$result"
 }
 
 # Extract JSON from mixed output (log lines + JSON)
@@ -267,7 +305,32 @@ run_cli() {
     esac
 
     # Execute command with additional arguments
-    eval "$cmd $*"
+    local output
+    local exit_code
+    
+    # Capture both stdout and stderr, and the exit code
+    output=$(eval "$cmd $*" 2>&1)
+    exit_code=$?
+    
+    # If command failed, show detailed error
+    if [ $exit_code -ne 0 ]; then
+        echo -e "${RED}❌ CLI Command Failed${NC}" >&2
+        echo -e "  Command: $cmd $*" >&2
+        echo -e "  Exit code: $exit_code" >&2
+        echo -e "  Output:" >&2
+        echo "$output" | head -20 | sed 's/^/    /' >&2
+        return $exit_code
+    fi
+    
+    # If format=json is requested, extract only the JSON part (filter out log lines)
+    # The demo app outputs log lines like "2025/11/10 15:09:17 ..." mixed with JSON
+    if [[ "$*" == *"--format=json"* ]] || [[ "$*" == *"format=json"* ]]; then
+        # Extract only JSON (lines starting with { or [, or continuation lines)
+        # Filter out lines that look like log timestamps
+        output=$(echo "$output" | grep -v "^[0-9]\{4\}/[0-9]\{2\}/[0-9]\{2\}" || echo "$output")
+    fi
+    
+    echo "$output"
 }
 
 # Check if demo app binary exists
@@ -275,7 +338,8 @@ check_demo_app() {
     if [ ! -f "$DEMO_APP" ]; then
         echo -e "${RED}❌ ERROR${NC}: Demo app binary not found at: $DEMO_APP"
         echo "Please build the demo app first:"
-        echo "  cd extend-challenge-demo-app && go build -o challenge-demo ./cmd/challenge-demo"
+        echo "  From the suite root: make build-demo-app"
+        echo "  Or manually: cd extend-challenge-demo-app && mkdir -p bin && go build -o bin/challenge-demo ./cmd/challenge-demo"
         exit 1
     fi
 }
@@ -309,6 +373,10 @@ print_test_header() {
 print_step() {
     local step_num="$1"
     local step_desc="$2"
+    
+    # Store current step for error reporting
+    export CURRENT_TEST_STEP="Step $step_num: $step_desc"
+    
     echo ""
     echo -e "${BLUE}Step $step_num:${NC} $step_desc"
 }
@@ -352,7 +420,29 @@ run_verification_with_client() {
         --platform-url=$PLATFORM_URL"
 
     # Execute command with additional arguments
-    eval "$cmd $*"
+    local output
+    local exit_code
+    
+    # Capture both stdout and stderr, and the exit code
+    output=$(eval "$cmd $*" 2>&1)
+    exit_code=$?
+    
+    # If command failed, show detailed error
+    if [ $exit_code -ne 0 ]; then
+        echo -e "${RED}❌ Verification Command Failed${NC}" >&2
+        echo -e "  Command: $cmd $*" >&2
+        echo -e "  Exit code: $exit_code" >&2
+        echo -e "  Output:" >&2
+        echo "$output" | head -20 | sed 's/^/    /' >&2
+        return $exit_code
+    fi
+    
+    # If format=json is requested, extract only the JSON part (filter out log lines)
+    if [[ "$*" == *"--format=json"* ]] || [[ "$*" == *"format=json"* ]]; then
+        output=$(echo "$output" | grep -v "^[0-9]\{4\}/[0-9]\{2\}/[0-9]\{2\}" || echo "$output")
+    fi
+    
+    echo "$output"
 }
 
 # Verify that an entitlement was granted in AGS Platform Service

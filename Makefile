@@ -7,6 +7,7 @@ help:
 	@echo ""
 	@echo "Setup:"
 	@echo "  make setup           - Clone all service repositories"
+	@echo "  make build-demo-app  - Build the demo app for E2E testing"
 	@echo ""
 	@echo "Development:"
 	@echo "  make dev-up          - Start all services (postgres, redis, services)"
@@ -23,6 +24,8 @@ help:
 	@echo "  make test-e2e-buffering - Test performance & buffering"
 	@echo "  make test-e2e-prereqs - Test prerequisites"
 	@echo "  make test-e2e-mixed  - Test mixed goal types"
+	@echo "  make test-e2e-m3-init - Test M3 player initialization"
+	@echo "  make test-e2e-inactive - Test inactive goal filtering"
 	@echo "  make test-e2e-errors - Test error scenarios"
 	@echo "  make test-e2e-rewards - Test reward failures"
 	@echo "  make test-e2e-multiuser - Test multi-user isolation"
@@ -59,6 +62,18 @@ setup:
 	@echo ""
 	@echo "✓ Setup complete! All service repositories are ready."
 	@echo "  Run 'make dev-up' to start all services."
+	@echo "  Run 'make build-demo-app' to build the demo app for testing."
+
+.PHONY: build-demo-app
+build-demo-app:
+	@echo "Building demo app..."
+	@if [ ! -d "extend-challenge-demo-app" ]; then \
+		echo "❌ ERROR: extend-challenge-demo-app directory not found."; \
+		echo "Run 'make setup' first."; \
+		exit 1; \
+	fi
+	@cd extend-challenge-demo-app && mkdir -p bin && go build -o bin/challenge-demo ./cmd/challenge-demo
+	@echo "✓ Demo app built successfully at: extend-challenge-demo-app/bin/challenge-demo"
 
 .PHONY: dev-up
 dev-up: setup
@@ -181,4 +196,20 @@ test-e2e-multiuser:
 		cd tests/e2e && set -a && . ./.env && set +a && ./test-multi-user.sh; \
 	else \
 		cd tests/e2e && ./test-multi-user.sh; \
+	fi
+
+.PHONY: test-e2e-m3-init
+test-e2e-m3-init:
+	@if [ -f tests/e2e/.env ]; then \
+		cd tests/e2e && set -a && . ./.env && set +a && ./test-m3-initialization.sh; \
+	else \
+		cd tests/e2e && ./test-m3-initialization.sh; \
+	fi
+
+.PHONY: test-e2e-inactive
+test-e2e-inactive:
+	@if [ -f tests/e2e/.env ]; then \
+		cd tests/e2e && set -a && . ./.env && set +a && ./test-inactive-goal-filtering.sh; \
+	else \
+		cd tests/e2e && ./test-inactive-goal-filtering.sh; \
 	fi

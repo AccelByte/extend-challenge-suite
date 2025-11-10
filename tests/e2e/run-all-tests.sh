@@ -41,6 +41,9 @@ TESTS=(
     "test-prerequisites.sh"
     "test-mixed-goals.sh"
     "test-buffering-performance.sh"
+    # M3 feature tests
+    "test-m3-initialization.sh"
+    "test-inactive-goal-filtering.sh"
     # Error scenario tests
     "test-error-scenarios.sh"
     "test-reward-failures.sh"

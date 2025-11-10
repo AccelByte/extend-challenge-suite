@@ -152,7 +152,9 @@ make test-e2e-help
 ### "Demo app binary not found"
 ```bash
 cd extend-challenge-demo-app
-go build -o bin/challenge-demo ./cmd/challenge-demo/
+mkdir -p bin
+go build -o bin/challenge-demo ./cmd/challenge-demo
+cd ..
 ```
 
 ### "Services are not running"

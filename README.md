@@ -97,7 +97,14 @@ git clone https://github.com/AccelByte/extend-challenge-event-handler.git
 git clone https://github.com/AccelByte/extend-challenge-demo-app.git
 ```
 
-### 3. Start All Services
+### 3. Build Demo App
+
+```bash
+# Build the demo app for testing
+make build-demo-app
+```
+
+### 4. Start All Services
 
 ```bash
 # Start PostgreSQL, Redis, Backend Service, Event Handler
@@ -116,7 +123,7 @@ This starts:
 - **Challenge Service** on ports 6565 (gRPC), 8000 (HTTP), 8080 (metrics)
 - **Event Handler** on ports 6566 (gRPC), 8081 (metrics)
 
-### 4. Test the API
+### 5. Test the API
 
 **List all challenges**:
 ```bash
@@ -134,7 +141,7 @@ go run main.go events trigger login
 go run main.go challenges claim daily-quests daily-login
 ```
 
-### 5. Run End-to-End Tests
+### 6. Run End-to-End Tests
 
 ```bash
 # Run all E2E tests

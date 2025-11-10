@@ -533,8 +533,9 @@ Example output without admin credentials:
 **Solution:**
 ```bash
 cd extend-challenge-demo-app
+mkdir -p bin
 go build -o bin/challenge-demo ./cmd/challenge-demo
-cd ../tests/e2e
+cd ..
 ```
 
 #### Issue: "Services are not running"
