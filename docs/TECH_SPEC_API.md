@@ -142,7 +142,7 @@ func (s *ChallengeServiceServer) GetUserChallenges(ctx context.Context, req *pb.
 Retrieve all challenges for the authenticated user with current progress.
 
 ```http
-GET /v1/challenges
+GET /v1/challenges?active_only=true
 ```
 
 #### Request
@@ -152,7 +152,15 @@ GET /v1/challenges
 Authorization: Bearer <JWT>
 ```
 
-**Query Parameters:** None
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `active_only` | boolean | `false` | Only show assigned goals (`isActive = true`) |
+
+**Behavior:**
+- `active_only=false` (default): Show all goals from config with user's progress (if any)
+- `active_only=true`: Only show goals where user has `isActive = true` in database
 
 #### Response 200 OK
 
@@ -160,51 +168,51 @@ Authorization: Bearer <JWT>
 {
   "challenges": [
     {
-      "challenge_id": "winter-challenge-2025",
+      "challengeId": "winter-challenge-2025",
       "name": "Winter Challenge",
       "description": "Complete winter-themed goals",
       "goals": [
         {
-          "goal_id": "kill-10-snowmen",
+          "goalId": "kill-10-snowmen",
           "name": "Snowman Slayer",
           "description": "Defeat 10 snowmen",
           "requirement": {
-            "stat_code": "snowman_kills",
+            "statCode": "snowman_kills",
             "operator": ">=",
-            "target_value": 10
+            "targetValue": 10
           },
           "reward": {
             "type": "ITEM",
-            "reward_id": "winter_sword",
+            "rewardId": "winter_sword",
             "quantity": 1
           },
           "prerequisites": [],
           "progress": 7,
           "status": "in_progress",
           "locked": false,
-          "completed_at": null,
-          "claimed_at": null
+          "completedAt": null,
+          "claimedAt": null
         },
         {
-          "goal_id": "reach-level-5",
+          "goalId": "reach-level-5",
           "name": "Level Up",
           "description": "Reach character level 5",
           "requirement": {
-            "stat_code": "player_level",
+            "statCode": "player_level",
             "operator": ">=",
-            "target_value": 5
+            "targetValue": 5
           },
           "reward": {
             "type": "WALLET",
-            "reward_id": "GOLD",
+            "rewardId": "GOLD",
             "quantity": 100
           },
           "prerequisites": ["kill-10-snowmen"],
           "progress": 0,
           "status": "not_started",
           "locked": true,
-          "completed_at": null,
-          "claimed_at": null
+          "completedAt": null,
+          "claimedAt": null
         }
       ]
     }
@@ -216,23 +224,23 @@ Authorization: Bearer <JWT>
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `challenge_id` | string | Unique challenge identifier |
+| `challengeId` | string | Unique challenge identifier |
 | `name` | string | Display name of challenge |
 | `description` | string | User-facing challenge description |
 | `goals` | array | List of goals in this challenge |
-| `goal_id` | string | Unique goal identifier |
-| `requirement.stat_code` | string | Event field to track |
+| `goalId` | string | Unique goal identifier |
+| `requirement.statCode` | string | Event field to track |
 | `requirement.operator` | string | Always `">="` in M1 |
-| `requirement.target_value` | int | Goal threshold |
+| `requirement.targetValue` | int | Goal threshold |
 | `reward.type` | string | `"ITEM"` or `"WALLET"` |
-| `reward.reward_id` | string | Item code or currency code |
+| `reward.rewardId` | string | Item code or currency code |
 | `reward.quantity` | int | Amount to grant |
 | `prerequisites` | array | Goal IDs that must be completed first |
 | `progress` | int | Current progress (may exceed target_value) |
 | `status` | string | `not_started`, `in_progress`, `completed`, `claimed` |
 | `locked` | bool | `true` if prerequisites not completed |
-| `completed_at` | string/null | ISO 8601 timestamp when completed |
-| `claimed_at` | string/null | ISO 8601 timestamp when claimed |
+| `completedAt` | string/null | ISO 8601 timestamp when completed |
+| `claimedAt` | string/null | ISO 8601 timestamp when claimed |
 
 #### Response Notes
 
@@ -245,7 +253,7 @@ Authorization: Bearer <JWT>
 
 ```json
 {
-  "error_code": "UNAUTHORIZED",
+  "errorCode": "UNAUTHORIZED",
   "message": "Invalid or expired token"
 }
 ```
@@ -254,7 +262,7 @@ Authorization: Bearer <JWT>
 
 ```json
 {
-  "error_code": "INTERNAL_ERROR",
+  "errorCode": "INTERNAL_ERROR",
   "message": "Failed to retrieve challenges"
 }
 ```
@@ -286,14 +294,14 @@ Authorization: Bearer <JWT>
 
 ```json
 {
-  "goal_id": "kill-10-snowmen",
+  "goalId": "kill-10-snowmen",
   "status": "claimed",
   "reward": {
     "type": "ITEM",
-    "reward_id": "winter_sword",
+    "rewardId": "winter_sword",
     "quantity": 1
   },
-  "claimed_at": "2025-10-15T10:30:00Z"
+  "claimedAt": "2025-10-15T10:30:00Z"
 }
 ```
 
@@ -302,7 +310,7 @@ Authorization: Bearer <JWT>
 **Scenario 1: Goal Not Completed**
 ```json
 {
-  "error_code": "GOAL_NOT_COMPLETED",
+  "errorCode": "GOAL_NOT_COMPLETED",
   "message": "Goal not completed. Please wait 1 second and try again."
 }
 ```
@@ -318,7 +326,7 @@ Authorization: Bearer <JWT>
 **Scenario 2: Already Claimed**
 ```json
 {
-  "error_code": "ALREADY_CLAIMED",
+  "errorCode": "ALREADY_CLAIMED",
   "message": "Reward has already been claimed"
 }
 ```
@@ -326,7 +334,7 @@ Authorization: Bearer <JWT>
 **Scenario 3: Prerequisites Not Met**
 ```json
 {
-  "error_code": "GOAL_LOCKED",
+  "errorCode": "GOAL_LOCKED",
   "message": "Prerequisites not completed"
 }
 ```
@@ -335,7 +343,7 @@ Authorization: Bearer <JWT>
 
 ```json
 {
-  "error_code": "GOAL_NOT_FOUND",
+  "errorCode": "GOAL_NOT_FOUND",
   "message": "Goal not found or removed from config"
 }
 ```
@@ -349,7 +357,7 @@ Authorization: Bearer <JWT>
 
 ```json
 {
-  "error_code": "REWARD_GRANT_FAILED",
+  "errorCode": "REWARD_GRANT_FAILED",
   "message": "Failed to grant reward via Platform Service after 3 retries"
 }
 ```
@@ -361,7 +369,162 @@ Authorization: Bearer <JWT>
 
 ---
 
-### 3. Health Check (FQ5)
+### 3. Initialize Player Goals (M3)
+
+Assign default goals to new players or sync existing players with config changes.
+
+```http
+POST /v1/challenges/initialize
+Authorization: Bearer <JWT>
+```
+
+#### Request
+
+**Headers:**
+```
+Authorization: Bearer <JWT>
+```
+
+**Body:** Empty (user ID and namespace extracted from JWT)
+
+#### Response 200 OK
+
+```json
+{
+  "assignedGoals": [
+    {
+      "challengeId": "combat-master",
+      "goalId": "defeat-10-enemies",
+      "name": "Defeat 10 Enemies",
+      "description": "Defeat 10 enemies in combat",
+      "isActive": true,
+      "assignedAt": "2025-11-04T12:00:00Z",
+      "expiresAt": null,
+      "progress": 0,
+      "target": 10,
+      "status": "not_started",
+      "requirement": {
+        "statCode": "enemy_defeats",
+        "operator": ">=",
+        "targetValue": 10
+      },
+      "reward": {
+        "type": "ITEM",
+        "rewardId": "combat_badge",
+        "quantity": 1
+      }
+    }
+  ],
+  "newAssignments": 1,
+  "totalActive": 1
+}
+```
+
+#### Response Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `assignedGoals` | array | List of assigned goals with current progress |
+| `newAssignments` | int | Number of new goals assigned in this call |
+| `totalActive` | int | Total number of active goals for this user |
+
+**When to Call:**
+- ✅ On player first login (new player onboarding)
+- ✅ On every subsequent login (config sync)
+- ✅ Idempotent: Only creates missing goals, skips existing
+
+**Performance:**
+- First login: ~10ms (creates 5-10 rows)
+- Subsequent logins: ~1-2ms (just SELECT, usually 0 INSERTs)
+
+#### Response 401 Unauthorized
+
+```json
+{
+  "error": "unauthorized",
+  "message": "Invalid or expired token"
+}
+```
+
+#### Response 500 Internal Server Error
+
+```json
+{
+  "error": "internal_error",
+  "message": "Failed to initialize goals"
+}
+```
+
+---
+
+### 4. Set Goal Active/Inactive (M3)
+
+Allow players to manually control goal assignment.
+
+```http
+PUT /v1/challenges/{challenge_id}/goals/{goal_id}/active
+Authorization: Bearer <JWT>
+Content-Type: application/json
+```
+
+#### Request
+
+**Headers:**
+```
+Authorization: Bearer <JWT>
+Content-Type: application/json
+```
+
+**Path Parameters:**
+- `challenge_id`: Challenge identifier (e.g., `combat-master`)
+- `goal_id`: Goal identifier (e.g., `defeat-10-enemies`)
+
+**Body:**
+```json
+{
+  "isActive": true
+}
+```
+
+#### Response 200 OK
+
+```json
+{
+  "challengeId": "combat-master",
+  "goalId": "defeat-10-enemies",
+  "isActive": true,
+  "assignedAt": "2025-11-04T12:05:00Z",
+  "message": "Goal activated successfully"
+}
+```
+
+**Behavior:**
+- `isActive = true`: Creates row if doesn't exist (assigns goal), updates `assignedAt`
+- `isActive = false`: Sets `isActive = false` (deactivates goal)
+- Setting `isActive = false` stops event processing for that goal
+- Only affects the authenticated user's goals
+
+#### Response 404 Not Found
+
+```json
+{
+  "error": "not_found",
+  "message": "Goal 'invalid-goal' not found in challenge 'combat-master'"
+}
+```
+
+#### Response 400 Bad Request
+
+```json
+{
+  "error": "bad_request",
+  "message": "Field 'isActive' is required"
+}
+```
+
+---
+
+### 5. Health Check (FQ5)
 
 Liveness probe for Kubernetes with database connectivity verification.
 
@@ -383,7 +546,7 @@ GET /healthz
 
 ```json
 {
-  "error_code": "DATABASE_UNHEALTHY",
+  "errorCode": "DATABASE_UNHEALTHY",
   "message": "Database connectivity check failed"
 }
 ```
@@ -429,7 +592,7 @@ All error responses follow this structure:
 
 ```json
 {
-  "error_code": "ERROR_CODE_CONSTANT",
+  "errorCode": "ERROR_CODE_CONSTANT",
   "message": "Human-readable error message"
 }
 ```
@@ -1086,30 +1249,30 @@ Authorization: Bearer eyJhbGc...
 {
   "challenges": [
     {
-      "challenge_id": "daily-quests",
+      "challengeId": "daily-quests",
       "name": "Daily Quests",
       "description": "Complete daily objectives",
       "goals": [
         {
-          "goal_id": "daily-login",
+          "goalId": "daily-login",
           "name": "Daily Login",
           "description": "Log in to the game",
           "requirement": {
-            "stat_code": "login_count",
+            "statCode": "login_count",
             "operator": ">=",
-            "target_value": 1
+            "targetValue": 1
           },
           "reward": {
             "type": "WALLET",
-            "reward_id": "GOLD",
+            "rewardId": "GOLD",
             "quantity": 10
           },
           "prerequisites": [],
           "progress": 0,
           "status": "not_started",
           "locked": false,
-          "completed_at": null,
-          "claimed_at": null
+          "completedAt": null,
+          "claimedAt": null
         }
       ]
     }
@@ -1130,30 +1293,30 @@ Authorization: Bearer eyJhbGc...
 {
   "challenges": [
     {
-      "challenge_id": "winter-challenge-2025",
+      "challengeId": "winter-challenge-2025",
       "name": "Winter Challenge",
       "description": "Complete winter-themed goals",
       "goals": [
         {
-          "goal_id": "kill-10-snowmen",
+          "goalId": "kill-10-snowmen",
           "name": "Snowman Slayer",
           "description": "Defeat 10 snowmen",
           "requirement": {
-            "stat_code": "snowman_kills",
+            "statCode": "snowman_kills",
             "operator": ">=",
-            "target_value": 10
+            "targetValue": 10
           },
           "reward": {
             "type": "ITEM",
-            "reward_id": "winter_sword",
+            "rewardId": "winter_sword",
             "quantity": 1
           },
           "prerequisites": [],
           "progress": 12,
           "status": "completed",
           "locked": false,
-          "completed_at": "2025-10-15T09:15:32Z",
-          "claimed_at": null
+          "completedAt": "2025-10-15T09:15:32Z",
+          "claimedAt": null
         }
       ]
     }
@@ -1172,14 +1335,14 @@ Authorization: Bearer eyJhbGc...
 **Response:** (200 OK)
 ```json
 {
-  "goal_id": "kill-10-snowmen",
+  "goalId": "kill-10-snowmen",
   "status": "claimed",
   "reward": {
     "type": "ITEM",
-    "reward_id": "winter_sword",
+    "rewardId": "winter_sword",
     "quantity": 1
   },
-  "claimed_at": "2025-10-15T10:30:00Z"
+  "claimedAt": "2025-10-15T10:30:00Z"
 }
 ```
 
@@ -1194,7 +1357,7 @@ Authorization: Bearer eyJhbGc...
 **Response:** (400 Bad Request)
 ```json
 {
-  "error_code": "ALREADY_CLAIMED",
+  "errorCode": "ALREADY_CLAIMED",
   "message": "Reward has already been claimed"
 }
 ```

@@ -608,6 +608,13 @@ func (p *EventProcessor) ProcessEvent(ctx context.Context, userID, namespace str
 - **Q17 (BRAINSTORM.md):** Absolute goals always replace with new stat value
 - **Q18 (BRAINSTORM.md):** Daily type vs Increment with daily flag are fundamentally different
 
+**M3 Note:** The EventProcessor does NOT check `is_active` before buffering updates. This is delegated to the repository layer:
+- `BatchIncrementProgress`: Has `WHERE is_active = true` check (prevents updates to unassigned increment goals)
+- `BatchUpsertProgress`: **Fixed in M3** - Now has `WHERE is_active = true` check for consistency
+- `BatchUpsertProgressWithCOPY`: Has `WHERE is_active = true` check (production version)
+- All batch methods now consistently filter by assignment status
+- Future optimization: EventProcessor could check `is_active` before buffering to reduce query parameters
+
 ### Repository Method Routing
 
 The EventProcessor delegates to three helper methods based on goal type. Each method encapsulates the specific logic for that goal type.
@@ -3022,6 +3029,131 @@ func TestFlushPreservesNewerUpdates(t *testing.T) {
 - Event-driven system with 1-second retry is sufficient
 - Users generate new events frequently (fresh data)
 - Progress updates are idempotent (safe to retry)
+
+---
+
+## M3 Updates: Lazy Materialization and Assignment Control
+
+### Overview
+
+M3 introduces **lazy materialization** (rows created by `/initialize` API, not by events) and **assignment control** (users choose which goals to track via `is_active` field). This changes how event processing queries interact with the database.
+
+### Key Changes from M1/M2
+
+**M1/M2 Behavior:**
+- Events could create new rows via INSERT in UPSERT queries
+- All goals tracked by default (no assignment control)
+- `BatchUpsertProgress` and `BatchIncrementProgress` both used UPSERT
+
+**M3 Behavior:**
+- `/initialize` API creates ALL rows before events arrive (lazy materialization)
+- Users assign/unassign goals via `/v1/challenges/{id}/goals/{id}/assign` endpoint
+- `is_active` field controls whether goal receives event updates
+- `BatchIncrementProgress` changed to UPDATE-only with `is_active = true` check
+- `BatchUpsertProgress` remains UPSERT for backward compatibility (no `is_active` check)
+
+### Query Patterns in M3
+
+#### BatchIncrementProgress (UPDATE-only)
+
+```sql
+UPDATE user_goal_progress
+SET
+    progress = CASE
+        WHEN is_daily = true AND DATE(updated_at) = CURRENT_DATE
+            THEN progress  -- Same day: no increment
+        ELSE progress + delta  -- New day or regular increment
+    END,
+    status = ...,
+    updated_at = NOW()
+FROM (SELECT user_id, goal_id, delta, target_value, is_daily FROM UNNEST(...)) AS t
+WHERE user_goal_progress.user_id = t.user_id
+  AND user_goal_progress.goal_id = t.goal_id
+  AND user_goal_progress.is_active = true   -- M3: Only update assigned goals
+  AND user_goal_progress.status != 'claimed';
+```
+
+**Key Design Points:**
+- UPDATE-only (no INSERT, relies on `/initialize` creating rows)
+- `is_active = true` check in WHERE clause prevents updates to unassigned goals
+- Events for unassigned goals → UPDATE affects 0 rows (silent no-op)
+- Maintains single-query performance (no separate is_active lookup)
+
+#### BatchUpsertProgress (UPSERT)
+
+```sql
+INSERT INTO user_goal_progress (
+    user_id, goal_id, challenge_id, namespace,
+    progress, status, completed_at, updated_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+ON CONFLICT (user_id, goal_id) DO UPDATE SET
+    progress = EXCLUDED.progress,
+    status = EXCLUDED.status,
+    completed_at = EXCLUDED.completed_at,
+    updated_at = NOW()
+WHERE user_goal_progress.status != 'claimed'
+  AND user_goal_progress.is_active = true;  -- M3: Fixed for consistency
+```
+
+**Key Design Points:**
+- **DEPRECATED:** Use BatchUpsertProgressWithCOPY in production
+- **Fixed in M3:** Now includes `is_active = true` check for consistency
+- Keeps UPSERT pattern (INSERT or UPDATE) for backward compatibility  
+- Lazy materialization ensures rows exist before events arrive
+- If row missing (edge case), INSERT creates it gracefully
+- Matches behavior of BatchUpsertProgressWithCOPY (production version)
+
+### Why Different Patterns?
+
+**Increment Goals (BatchIncrementProgress):**
+- Atomic database-side accumulation required (`progress = progress + delta`)
+- Cannot use INSERT (no initial value to accumulate with)
+- Must use UPDATE-only with `is_active = true` check
+- Prevents unassigned goal updates cleanly
+
+**Absolute/Daily Goals (BatchUpsertProgress):**
+- Progress is replacement, not accumulation (`progress = new_value`)
+- Can use UPSERT for backward compatibility
+- Lazy materialization handles 99.9% of cases (rows exist)
+- INSERT fallback handles edge cases gracefully
+- **M3 Fix:** Now includes `is_active = true` check for consistency
+  1. Matches BatchUpsertProgressWithCOPY behavior (production)
+  2. Ensures tests and production behave identically
+  3. Only updates assigned goals (is_active = true)
+
+### Event Handler Responsibilities
+
+**Current Implementation (M3):**
+1. Event arrives → lookup affected goals from cache
+2. Buffer updates for ALL matching goals (no `is_active` check in handler)
+3. Flush calls repository methods with all buffered updates
+4. Repository filters based on `is_active` (all batch methods now have this check)
+
+**Future Optimization:**
+- Event handler could check `goal.DefaultAssigned` and user's assignment status
+- Skip buffering for unassigned goals at handler level
+- Reduces buffer size and database query parameters
+- Currently deferred (lazy materialization handles most cases efficiently)
+
+### Performance Impact
+
+**M3 maintains M1/M2 performance:**
+- Still single query per batch (no additional is_active lookups)
+- Increment goals: 0 rows updated for unassigned goals (fast)
+- Absolute/daily goals: UPSERT succeeds (row already exists via lazy init)
+- No regression in throughput or latency
+
+### Backward Compatibility
+
+**M1 behavior preserved:**
+- Set `default_assigned = true` on all goals in config
+- Call `/initialize` on first login (creates all rows as active)
+- All goals receive event updates → same as M1
+
+**M3 behavior:**
+- Set `default_assigned = true` only on beginner goals
+- Call `/initialize` on first login (creates all rows, some inactive)
+- Only assigned goals receive event updates → better performance
 
 ---
 

@@ -1,0 +1,24 @@
+--- HTTP Performance Metrics (7min) ---
+  Recent Initialize Requests (last 20):
+time="2025-11-13T04:26:07Z" level=info msg="Successfully initialized player (optimized)" handler=optimized namespace=abtestdewa-competitive new_assignments=0 total_active=500 user_id=user-002823
+time="2025-11-13T04:26:07Z" level=info msg="HTTP request" duration=8.659467ms method=POST path=/challenge/v1/challenges/initialize
+time="2025-11-13T04:26:07Z" level=info msg="Player already initialized (fast path)" active_goals=500 namespace=abtestdewa-competitive total_goals=500 user_id=user-008776
+time="2025-11-13T04:26:07Z" level=info msg="Successfully initialized player (optimized)" handler=optimized namespace=abtestdewa-competitive new_assignments=0 total_active=500 user_id=user-008776
+time="2025-11-13T04:26:07Z" level=info msg="HTTP request" duration=9.666192ms method=POST path=/challenge/v1/challenges/initialize
+time="2025-11-13T04:26:07Z" level=info msg="Player already initialized (fast path)" active_goals=500 namespace=abtestdewa-competitive total_goals=500 user_id=user-006482
+time="2025-11-13T04:26:07Z" level=info msg="Player already initialized (fast path)" active_goals=500 namespace=abtestdewa-competitive total_goals=500 user_id=user-006658
+time="2025-11-13T04:26:07Z" level=info msg="Successfully initialized player (optimized)" handler=optimized namespace=abtestdewa-competitive new_assignments=0 total_active=500 user_id=user-006658
+time="2025-11-13T04:26:07Z" level=info msg="HTTP request" duration=16.216895ms method=POST path=/challenge/v1/challenges/initialize
+time="2025-11-13T04:26:07Z" level=info msg="Successfully initialized player (optimized)" handler=optimized namespace=abtestdewa-competitive new_assignments=0 total_active=500 user_id=user-006482
+time="2025-11-13T04:26:07Z" level=info msg="HTTP request" duration=12.890671ms method=POST path=/challenge/v1/challenges/initialize
+time="2025-11-13T04:26:07Z" level=info msg="Player already initialized (fast path)" active_goals=500 namespace=abtestdewa-competitive total_goals=500 user_id=user-007406
+time="2025-11-13T04:26:07Z" level=info msg="Successfully initialized player (optimized)" handler=optimized namespace=abtestdewa-competitive new_assignments=0 total_active=500 user_id=user-007406
+time="2025-11-13T04:26:07Z" level=info msg="HTTP request" duration=13.975047ms method=POST path=/challenge/v1/challenges/initialize
+time="2025-11-13T04:26:07Z" level=info msg="Player already initialized (fast path)" active_goals=500 namespace=abtestdewa-competitive total_goals=500 user_id=user-005604
+time="2025-11-13T04:26:07Z" level=info msg="Player already initialized (fast path)" active_goals=500 namespace=abtestdewa-competitive total_goals=500 user_id=user-008851
+time="2025-11-13T04:26:07Z" level=info msg="Successfully initialized player (optimized)" handler=optimized namespace=abtestdewa-competitive new_assignments=0 total_active=500 user_id=user-005604
+time="2025-11-13T04:26:07Z" level=info msg="HTTP request" duration=11.721187ms method=POST path=/challenge/v1/challenges/initialize
+time="2025-11-13T04:26:07Z" level=info msg="Successfully initialized player (optimized)" handler=optimized namespace=abtestdewa-competitive new_assignments=0 total_active=500 user_id=user-008851
+time="2025-11-13T04:26:07Z" level=info msg="HTTP request" duration=11.567366ms method=POST path=/challenge/v1/challenges/initialize
+
+  Slow Requests (>1s):

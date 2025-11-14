@@ -1,0 +1,7 @@
+--- Docker Container Stats (7min) ---
+NAME                      CPU %     MEM USAGE / LIMIT   MEM %     NET I/O           BLOCK I/O
+challenge-service         152.96%   35.08MiB / 4GiB     0.86%     10.4GB / 18.3GB   12.3kB / 0B
+challenge-event-handler   0.18%     13.73MiB / 2GiB     0.67%     55.2kB / 22.6kB   28.6MB / 0B
+challenge-postgres        119.93%   283.5MiB / 4GiB     6.92%     1.56GB / 29.4GB   2.41GB / 18.6GB
+challenge-redis           0.61%     4.742MiB / 256MiB   1.85%     54.9kB / 126B     18.7MB / 0B
+

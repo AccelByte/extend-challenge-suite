@@ -1,0 +1,328 @@
+# HELP go_gc_duration_seconds A summary of the wall-time pause (stop-the-world) duration in garbage collection cycles.
+# TYPE go_gc_duration_seconds summary
+go_gc_duration_seconds{quantile="0"} 4.8841e-05
+go_gc_duration_seconds{quantile="0.25"} 0.000114655
+go_gc_duration_seconds{quantile="0.5"} 0.000167534
+go_gc_duration_seconds{quantile="0.75"} 0.00027237
+go_gc_duration_seconds{quantile="1"} 0.045645616
+go_gc_duration_seconds_sum 9.529944962
+go_gc_duration_seconds_count 6846
+# HELP go_gc_gogc_percent Heap size target percentage configured by the user, otherwise 100. This value is set by the GOGC environment variable, and the runtime/debug.SetGCPercent function. Sourced from /gc/gogc:percent.
+# TYPE go_gc_gogc_percent gauge
+go_gc_gogc_percent 100
+# HELP go_gc_gomemlimit_bytes Go runtime memory limit configured by the user, otherwise math.MaxInt64. This value is set by the GOMEMLIMIT environment variable, and the runtime/debug.SetMemoryLimit function. Sourced from /gc/gomemlimit:bytes.
+# TYPE go_gc_gomemlimit_bytes gauge
+go_gc_gomemlimit_bytes 9.223372036854776e+18
+# HELP go_goroutines Number of goroutines that currently exist.
+# TYPE go_goroutines gauge
+go_goroutines 405
+# HELP go_info Information about the Go environment.
+# TYPE go_info gauge
+go_info{version="go1.25.4"} 1
+# HELP go_memstats_alloc_bytes Number of bytes allocated in heap and currently in use. Equals to /memory/classes/heap/objects:bytes.
+# TYPE go_memstats_alloc_bytes gauge
+go_memstats_alloc_bytes 7.1719912e+07
+# HELP go_memstats_alloc_bytes_total Total number of bytes allocated in heap until now, even if released already. Equals to /gc/heap/allocs:bytes.
+# TYPE go_memstats_alloc_bytes_total counter
+go_memstats_alloc_bytes_total 2.2809444076e+11
+# HELP go_memstats_buck_hash_sys_bytes Number of bytes used by the profiling bucket hash table. Equals to /memory/classes/profiling/buckets:bytes.
+# TYPE go_memstats_buck_hash_sys_bytes gauge
+go_memstats_buck_hash_sys_bytes 1.979182e+06
+# HELP go_memstats_frees_total Total number of heap objects frees. Equals to /gc/heap/frees:objects + /gc/heap/tiny/allocs:objects.
+# TYPE go_memstats_frees_total counter
+go_memstats_frees_total 8.57129696e+08
+# HELP go_memstats_gc_sys_bytes Number of bytes used for garbage collection system metadata. Equals to /memory/classes/metadata/other:bytes.
+# TYPE go_memstats_gc_sys_bytes gauge
+go_memstats_gc_sys_bytes 4.751168e+06
+# HELP go_memstats_heap_alloc_bytes Number of heap bytes allocated and currently in use, same as go_memstats_alloc_bytes. Equals to /memory/classes/heap/objects:bytes.
+# TYPE go_memstats_heap_alloc_bytes gauge
+go_memstats_heap_alloc_bytes 7.1719912e+07
+# HELP go_memstats_heap_idle_bytes Number of heap bytes waiting to be used. Equals to /memory/classes/heap/released:bytes + /memory/classes/heap/free:bytes.
+# TYPE go_memstats_heap_idle_bytes gauge
+go_memstats_heap_idle_bytes 1.3033472e+08
+# HELP go_memstats_heap_inuse_bytes Number of heap bytes that are in use. Equals to /memory/classes/heap/objects:bytes + /memory/classes/heap/unused:bytes
+# TYPE go_memstats_heap_inuse_bytes gauge
+go_memstats_heap_inuse_bytes 7.5055104e+07
+# HELP go_memstats_heap_objects Number of currently allocated objects. Equals to /gc/heap/objects:objects.
+# TYPE go_memstats_heap_objects gauge
+go_memstats_heap_objects 182069
+# HELP go_memstats_heap_released_bytes Number of heap bytes released to OS. Equals to /memory/classes/heap/released:bytes.
+# TYPE go_memstats_heap_released_bytes gauge
+go_memstats_heap_released_bytes 9.805824e+07
+# HELP go_memstats_heap_sys_bytes Number of heap bytes obtained from system. Equals to /memory/classes/heap/objects:bytes + /memory/classes/heap/unused:bytes + /memory/classes/heap/released:bytes + /memory/classes/heap/free:bytes.
+# TYPE go_memstats_heap_sys_bytes gauge
+go_memstats_heap_sys_bytes 2.05389824e+08
+# HELP go_memstats_last_gc_time_seconds Number of seconds since 1970 of last garbage collection.
+# TYPE go_memstats_last_gc_time_seconds gauge
+go_memstats_last_gc_time_seconds 1.7627846853741462e+09
+# HELP go_memstats_mallocs_total Total number of heap objects allocated, both live and gc-ed. Semantically a counter version for go_memstats_heap_objects gauge. Equals to /gc/heap/allocs:objects + /gc/heap/tiny/allocs:objects.
+# TYPE go_memstats_mallocs_total counter
+go_memstats_mallocs_total 8.57311765e+08
+# HELP go_memstats_mcache_inuse_bytes Number of bytes in use by mcache structures. Equals to /memory/classes/metadata/mcache/inuse:bytes.
+# TYPE go_memstats_mcache_inuse_bytes gauge
+go_memstats_mcache_inuse_bytes 2416
+# HELP go_memstats_mcache_sys_bytes Number of bytes used for mcache structures obtained from system. Equals to /memory/classes/metadata/mcache/inuse:bytes + /memory/classes/metadata/mcache/free:bytes.
+# TYPE go_memstats_mcache_sys_bytes gauge
+go_memstats_mcache_sys_bytes 15704
+# HELP go_memstats_mspan_inuse_bytes Number of bytes in use by mspan structures. Equals to /memory/classes/metadata/mspan/inuse:bytes.
+# TYPE go_memstats_mspan_inuse_bytes gauge
+go_memstats_mspan_inuse_bytes 407840
+# HELP go_memstats_mspan_sys_bytes Number of bytes used for mspan structures obtained from system. Equals to /memory/classes/metadata/mspan/inuse:bytes + /memory/classes/metadata/mspan/free:bytes.
+# TYPE go_memstats_mspan_sys_bytes gauge
+go_memstats_mspan_sys_bytes 1.1424e+06
+# HELP go_memstats_next_gc_bytes Number of heap bytes when next garbage collection will take place. Equals to /gc/heap/goal:bytes.
+# TYPE go_memstats_next_gc_bytes gauge
+go_memstats_next_gc_bytes 1.06987714e+08
+# HELP go_memstats_other_sys_bytes Number of bytes used for other system allocations. Equals to /memory/classes/other:bytes.
+# TYPE go_memstats_other_sys_bytes gauge
+go_memstats_other_sys_bytes 797426
+# HELP go_memstats_stack_inuse_bytes Number of bytes obtained from system for stack allocator in non-CGO environments. Equals to /memory/classes/heap/stacks:bytes.
+# TYPE go_memstats_stack_inuse_bytes gauge
+go_memstats_stack_inuse_bytes 4.325376e+06
+# HELP go_memstats_stack_sys_bytes Number of bytes obtained from system for stack allocator. Equals to /memory/classes/heap/stacks:bytes + /memory/classes/os-stacks:bytes.
+# TYPE go_memstats_stack_sys_bytes gauge
+go_memstats_stack_sys_bytes 4.325376e+06
+# HELP go_memstats_sys_bytes Number of bytes obtained from system. Equals to /memory/classes/total:byte.
+# TYPE go_memstats_sys_bytes gauge
+go_memstats_sys_bytes 2.1840108e+08
+# HELP go_sched_gomaxprocs_threads The current runtime.GOMAXPROCS setting, or the number of operating system threads that can execute user-level Go code simultaneously. Sourced from /sched/gomaxprocs:threads.
+# TYPE go_sched_gomaxprocs_threads gauge
+go_sched_gomaxprocs_threads 2
+# HELP go_threads Number of OS threads created.
+# TYPE go_threads gauge
+go_threads 10
+# HELP grpc_server_handled_total Total number of RPCs completed on the server, regardless of success or failure.
+# TYPE grpc_server_handled_total counter
+grpc_server_handled_total{grpc_code="Aborted",grpc_method="Check",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Aborted",grpc_method="ClaimGoalReward",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Aborted",grpc_method="GetUserChallenges",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Aborted",grpc_method="HealthCheck",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Aborted",grpc_method="InitializePlayer",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Aborted",grpc_method="List",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Aborted",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="Aborted",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1alpha.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="Aborted",grpc_method="SetGoalActive",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Aborted",grpc_method="Watch",grpc_service="grpc.health.v1.Health",grpc_type="server_stream"} 0
+grpc_server_handled_total{grpc_code="AlreadyExists",grpc_method="Check",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="AlreadyExists",grpc_method="ClaimGoalReward",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="AlreadyExists",grpc_method="GetUserChallenges",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="AlreadyExists",grpc_method="HealthCheck",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="AlreadyExists",grpc_method="InitializePlayer",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="AlreadyExists",grpc_method="List",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="AlreadyExists",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="AlreadyExists",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1alpha.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="AlreadyExists",grpc_method="SetGoalActive",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="AlreadyExists",grpc_method="Watch",grpc_service="grpc.health.v1.Health",grpc_type="server_stream"} 0
+grpc_server_handled_total{grpc_code="Canceled",grpc_method="Check",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Canceled",grpc_method="ClaimGoalReward",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Canceled",grpc_method="GetUserChallenges",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Canceled",grpc_method="HealthCheck",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Canceled",grpc_method="InitializePlayer",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Canceled",grpc_method="List",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Canceled",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="Canceled",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1alpha.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="Canceled",grpc_method="SetGoalActive",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Canceled",grpc_method="Watch",grpc_service="grpc.health.v1.Health",grpc_type="server_stream"} 0
+grpc_server_handled_total{grpc_code="DataLoss",grpc_method="Check",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="DataLoss",grpc_method="ClaimGoalReward",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="DataLoss",grpc_method="GetUserChallenges",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="DataLoss",grpc_method="HealthCheck",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="DataLoss",grpc_method="InitializePlayer",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="DataLoss",grpc_method="List",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="DataLoss",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="DataLoss",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1alpha.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="DataLoss",grpc_method="SetGoalActive",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="DataLoss",grpc_method="Watch",grpc_service="grpc.health.v1.Health",grpc_type="server_stream"} 0
+grpc_server_handled_total{grpc_code="DeadlineExceeded",grpc_method="Check",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="DeadlineExceeded",grpc_method="ClaimGoalReward",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="DeadlineExceeded",grpc_method="GetUserChallenges",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="DeadlineExceeded",grpc_method="HealthCheck",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="DeadlineExceeded",grpc_method="InitializePlayer",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="DeadlineExceeded",grpc_method="List",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="DeadlineExceeded",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="DeadlineExceeded",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1alpha.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="DeadlineExceeded",grpc_method="SetGoalActive",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="DeadlineExceeded",grpc_method="Watch",grpc_service="grpc.health.v1.Health",grpc_type="server_stream"} 0
+grpc_server_handled_total{grpc_code="FailedPrecondition",grpc_method="Check",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="FailedPrecondition",grpc_method="ClaimGoalReward",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="FailedPrecondition",grpc_method="GetUserChallenges",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="FailedPrecondition",grpc_method="HealthCheck",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="FailedPrecondition",grpc_method="InitializePlayer",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="FailedPrecondition",grpc_method="List",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="FailedPrecondition",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="FailedPrecondition",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1alpha.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="FailedPrecondition",grpc_method="SetGoalActive",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="FailedPrecondition",grpc_method="Watch",grpc_service="grpc.health.v1.Health",grpc_type="server_stream"} 0
+grpc_server_handled_total{grpc_code="Internal",grpc_method="Check",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Internal",grpc_method="ClaimGoalReward",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Internal",grpc_method="GetUserChallenges",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Internal",grpc_method="HealthCheck",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Internal",grpc_method="InitializePlayer",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Internal",grpc_method="List",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Internal",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="Internal",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1alpha.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="Internal",grpc_method="SetGoalActive",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Internal",grpc_method="Watch",grpc_service="grpc.health.v1.Health",grpc_type="server_stream"} 0
+grpc_server_handled_total{grpc_code="InvalidArgument",grpc_method="Check",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="InvalidArgument",grpc_method="ClaimGoalReward",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="InvalidArgument",grpc_method="GetUserChallenges",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="InvalidArgument",grpc_method="HealthCheck",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="InvalidArgument",grpc_method="InitializePlayer",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="InvalidArgument",grpc_method="List",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="InvalidArgument",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="InvalidArgument",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1alpha.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="InvalidArgument",grpc_method="SetGoalActive",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="InvalidArgument",grpc_method="Watch",grpc_service="grpc.health.v1.Health",grpc_type="server_stream"} 0
+grpc_server_handled_total{grpc_code="NotFound",grpc_method="Check",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="NotFound",grpc_method="ClaimGoalReward",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="NotFound",grpc_method="GetUserChallenges",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="NotFound",grpc_method="HealthCheck",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="NotFound",grpc_method="InitializePlayer",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="NotFound",grpc_method="List",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="NotFound",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="NotFound",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1alpha.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="NotFound",grpc_method="SetGoalActive",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="NotFound",grpc_method="Watch",grpc_service="grpc.health.v1.Health",grpc_type="server_stream"} 0
+grpc_server_handled_total{grpc_code="OK",grpc_method="Check",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="OK",grpc_method="ClaimGoalReward",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="OK",grpc_method="GetUserChallenges",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="OK",grpc_method="HealthCheck",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="OK",grpc_method="InitializePlayer",grpc_service="service.Service",grpc_type="unary"} 20809
+grpc_server_handled_total{grpc_code="OK",grpc_method="List",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="OK",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="OK",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1alpha.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="OK",grpc_method="SetGoalActive",grpc_service="service.Service",grpc_type="unary"} 30845
+grpc_server_handled_total{grpc_code="OK",grpc_method="Watch",grpc_service="grpc.health.v1.Health",grpc_type="server_stream"} 0
+grpc_server_handled_total{grpc_code="OutOfRange",grpc_method="Check",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="OutOfRange",grpc_method="ClaimGoalReward",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="OutOfRange",grpc_method="GetUserChallenges",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="OutOfRange",grpc_method="HealthCheck",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="OutOfRange",grpc_method="InitializePlayer",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="OutOfRange",grpc_method="List",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="OutOfRange",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="OutOfRange",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1alpha.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="OutOfRange",grpc_method="SetGoalActive",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="OutOfRange",grpc_method="Watch",grpc_service="grpc.health.v1.Health",grpc_type="server_stream"} 0
+grpc_server_handled_total{grpc_code="PermissionDenied",grpc_method="Check",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="PermissionDenied",grpc_method="ClaimGoalReward",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="PermissionDenied",grpc_method="GetUserChallenges",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="PermissionDenied",grpc_method="HealthCheck",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="PermissionDenied",grpc_method="InitializePlayer",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="PermissionDenied",grpc_method="List",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="PermissionDenied",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="PermissionDenied",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1alpha.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="PermissionDenied",grpc_method="SetGoalActive",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="PermissionDenied",grpc_method="Watch",grpc_service="grpc.health.v1.Health",grpc_type="server_stream"} 0
+grpc_server_handled_total{grpc_code="ResourceExhausted",grpc_method="Check",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="ResourceExhausted",grpc_method="ClaimGoalReward",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="ResourceExhausted",grpc_method="GetUserChallenges",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="ResourceExhausted",grpc_method="HealthCheck",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="ResourceExhausted",grpc_method="InitializePlayer",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="ResourceExhausted",grpc_method="List",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="ResourceExhausted",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="ResourceExhausted",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1alpha.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="ResourceExhausted",grpc_method="SetGoalActive",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="ResourceExhausted",grpc_method="Watch",grpc_service="grpc.health.v1.Health",grpc_type="server_stream"} 0
+grpc_server_handled_total{grpc_code="Unauthenticated",grpc_method="Check",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unauthenticated",grpc_method="ClaimGoalReward",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unauthenticated",grpc_method="GetUserChallenges",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unauthenticated",grpc_method="HealthCheck",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unauthenticated",grpc_method="InitializePlayer",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unauthenticated",grpc_method="List",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unauthenticated",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="Unauthenticated",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1alpha.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="Unauthenticated",grpc_method="SetGoalActive",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unauthenticated",grpc_method="Watch",grpc_service="grpc.health.v1.Health",grpc_type="server_stream"} 0
+grpc_server_handled_total{grpc_code="Unavailable",grpc_method="Check",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unavailable",grpc_method="ClaimGoalReward",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unavailable",grpc_method="GetUserChallenges",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unavailable",grpc_method="HealthCheck",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unavailable",grpc_method="InitializePlayer",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unavailable",grpc_method="List",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unavailable",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="Unavailable",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1alpha.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="Unavailable",grpc_method="SetGoalActive",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unavailable",grpc_method="Watch",grpc_service="grpc.health.v1.Health",grpc_type="server_stream"} 0
+grpc_server_handled_total{grpc_code="Unimplemented",grpc_method="Check",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unimplemented",grpc_method="ClaimGoalReward",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unimplemented",grpc_method="GetUserChallenges",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unimplemented",grpc_method="HealthCheck",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unimplemented",grpc_method="InitializePlayer",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unimplemented",grpc_method="List",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unimplemented",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="Unimplemented",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1alpha.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="Unimplemented",grpc_method="SetGoalActive",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unimplemented",grpc_method="Watch",grpc_service="grpc.health.v1.Health",grpc_type="server_stream"} 0
+grpc_server_handled_total{grpc_code="Unknown",grpc_method="Check",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unknown",grpc_method="ClaimGoalReward",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unknown",grpc_method="GetUserChallenges",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unknown",grpc_method="HealthCheck",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unknown",grpc_method="InitializePlayer",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unknown",grpc_method="List",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unknown",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="Unknown",grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1alpha.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_handled_total{grpc_code="Unknown",grpc_method="SetGoalActive",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_handled_total{grpc_code="Unknown",grpc_method="Watch",grpc_service="grpc.health.v1.Health",grpc_type="server_stream"} 0
+# HELP grpc_server_msg_received_total Total number of RPC stream messages received on the server.
+# TYPE grpc_server_msg_received_total counter
+grpc_server_msg_received_total{grpc_method="Check",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_msg_received_total{grpc_method="ClaimGoalReward",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_msg_received_total{grpc_method="GetUserChallenges",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_msg_received_total{grpc_method="HealthCheck",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_msg_received_total{grpc_method="InitializePlayer",grpc_service="service.Service",grpc_type="unary"} 20814
+grpc_server_msg_received_total{grpc_method="List",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_msg_received_total{grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_msg_received_total{grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1alpha.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_msg_received_total{grpc_method="SetGoalActive",grpc_service="service.Service",grpc_type="unary"} 30849
+grpc_server_msg_received_total{grpc_method="Watch",grpc_service="grpc.health.v1.Health",grpc_type="server_stream"} 0
+# HELP grpc_server_msg_sent_total Total number of gRPC stream messages sent by the server.
+# TYPE grpc_server_msg_sent_total counter
+grpc_server_msg_sent_total{grpc_method="Check",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_msg_sent_total{grpc_method="ClaimGoalReward",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_msg_sent_total{grpc_method="GetUserChallenges",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_msg_sent_total{grpc_method="HealthCheck",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_msg_sent_total{grpc_method="InitializePlayer",grpc_service="service.Service",grpc_type="unary"} 20809
+grpc_server_msg_sent_total{grpc_method="List",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_msg_sent_total{grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_msg_sent_total{grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1alpha.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_msg_sent_total{grpc_method="SetGoalActive",grpc_service="service.Service",grpc_type="unary"} 30845
+grpc_server_msg_sent_total{grpc_method="Watch",grpc_service="grpc.health.v1.Health",grpc_type="server_stream"} 0
+# HELP grpc_server_started_total Total number of RPCs started on the server.
+# TYPE grpc_server_started_total counter
+grpc_server_started_total{grpc_method="Check",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_started_total{grpc_method="ClaimGoalReward",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_started_total{grpc_method="GetUserChallenges",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_started_total{grpc_method="HealthCheck",grpc_service="service.Service",grpc_type="unary"} 0
+grpc_server_started_total{grpc_method="InitializePlayer",grpc_service="service.Service",grpc_type="unary"} 20814
+grpc_server_started_total{grpc_method="List",grpc_service="grpc.health.v1.Health",grpc_type="unary"} 0
+grpc_server_started_total{grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_started_total{grpc_method="ServerReflectionInfo",grpc_service="grpc.reflection.v1alpha.ServerReflection",grpc_type="bidi_stream"} 0
+grpc_server_started_total{grpc_method="SetGoalActive",grpc_service="service.Service",grpc_type="unary"} 30849
+grpc_server_started_total{grpc_method="Watch",grpc_service="grpc.health.v1.Health",grpc_type="server_stream"} 0
+# HELP process_cpu_seconds_total Total user and system CPU time spent in seconds.
+# TYPE process_cpu_seconds_total counter
+process_cpu_seconds_total 686.33
+# HELP process_max_fds Maximum number of open file descriptors.
+# TYPE process_max_fds gauge
+process_max_fds 1.048576e+06
+# HELP process_network_receive_bytes_total Number of bytes received by the process over the network.
+# TYPE process_network_receive_bytes_total counter
+process_network_receive_bytes_total 2.598170541e+09
+# HELP process_network_transmit_bytes_total Number of bytes sent by the process over the network.
+# TYPE process_network_transmit_bytes_total counter
+process_network_transmit_bytes_total 3.1349346593e+10
+# HELP process_open_fds Number of open file descriptors.
+# TYPE process_open_fds gauge
+process_open_fds 337
+# HELP process_resident_memory_bytes Resident memory size in bytes.
+# TYPE process_resident_memory_bytes gauge
+process_resident_memory_bytes 1.57106176e+08
+# HELP process_start_time_seconds Start time of the process since unix epoch in seconds.
+# TYPE process_start_time_seconds gauge
+process_start_time_seconds 1.76278399761e+09
+# HELP process_virtual_memory_bytes Virtual memory size in bytes.
+# TYPE process_virtual_memory_bytes gauge
+process_virtual_memory_bytes 1.55457536e+09
+# HELP process_virtual_memory_max_bytes Maximum amount of virtual memory available in bytes.
+# TYPE process_virtual_memory_max_bytes gauge
+process_virtual_memory_max_bytes 1.8446744073709552e+19

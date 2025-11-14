@@ -21,7 +21,7 @@ This document outlines the progressive feature rollout for the Challenge Service
 
 - **Milestone 1**: ✅ Complete (Foundation implemented and deployed)
 - **Milestone 2**: ✅ Complete (Performance validated, optimizations implemented)
-- **Milestone 3**: 📋 Planned (Per-user goal activation control)
+- **Milestone 3**: ✅ Complete (Goal assignment control with performance optimization)
 - **Milestone 4**: 📋 Planned (Random inactive goal activation)
 - **Milestone 5**: 📋 Planned (Auto rotation daily/weekly/monthly)
 - **Backlog**: 5 feature sets for future development
@@ -302,9 +302,10 @@ Determine system performance characteristics under resource constraints to guide
 
 ## Milestone 3: Per-User Goal Activation Control
 
-**Status:** 📋 Ready for Implementation
+**Status:** ✅ Complete - Production Ready with Major Performance Optimizations
 **Target Demo:** Players can activate/deactivate goals to focus on specific objectives
 **Technical Spec:** [TECH_SPEC_M3.md](./TECH_SPEC_M3.md)
+**Load Test Results:** [M3_LOADTEST_RESULTS.md](./M3_LOADTEST_RESULTS.md)
 
 ### Features
 
@@ -543,6 +544,16 @@ Add `default_assigned` field to goal config:
 ✅ Can only claim rewards for active completed goals
 ✅ Active status persists in database
 ✅ Config loader validates `default_assigned` field
+
+### Performance Achievements (Phases 8-15)
+
+✅ **Initialize Endpoint**: 16.84ms (p95) - **316x improvement** (5,320ms → 16.84ms)
+✅ **Query Optimization**: 18.94ms (p95) - **15.7x speedup** (296.9ms → 18.94ms)
+✅ **Memory Efficiency**: 45.8% reduction (231.2 GB → 125.4 GB)
+✅ **Event Processing**: 24.61ms (p95) - Well within 500ms target
+✅ **System Capacity**: Validated single-instance limits and scaling requirements
+
+See [M3_LOADTEST_RESULTS.md](./M3_LOADTEST_RESULTS.md) for comprehensive testing journey.
 
 ### Example Use Cases
 
@@ -1747,16 +1758,23 @@ export async function assignGoals(userId: string, challengeId: string): Promise<
   - Challenge Service: 1.5-1.75x improvement
   - Event Handler: 2.07x improvement
 
-### Phase 3: M3 Per-User Goal Activation (NEXT)
-**Duration:** 1 week
+### Phase 3: M3 Per-User Goal Activation ✅ COMPLETE
+**Duration:** 1 week (extended for performance testing)
 **Dependencies:** M1 complete
-**Status:** 📋 Ready to Start
+**Status:** ✅ Complete - Production Ready
+**Completed:** 2025-11-13
 
-- Add `is_active` column to database
-- Implement `PUT /v1/challenges/{id}/goals/{id}/active` endpoint
-- Add `active_only` query parameter to GET endpoints
-- Update event processing to respect active status
-- Add claim validation for active status
+- ✅ Add `is_active` column to database
+- ✅ Implement initialize endpoint (`POST /v1/challenges/initialize`)
+- ✅ Implement `PUT /v1/challenges/{id}/goals/{id}/active` endpoint
+- ✅ Add `active_only` query parameter to GET endpoints
+- ✅ Update event processing to respect active status
+- ✅ Add claim validation for active status
+- ✅ **BONUS:** Comprehensive load testing (Phases 8-15)
+  - Initialize optimization: 316x improvement (5.32s → 16.84ms)
+  - Query optimization: 15.7x speedup (296.9ms → 18.94ms)
+  - Memory optimization: 45.8% reduction
+  - System capacity limits validated
 
 ### Phase 4: M4 Random Goal Activation
 **Duration:** 1 week
@@ -1785,23 +1803,32 @@ export async function assignGoals(userId: string, challengeId: string): Promise<
 
 ### Progress Summary
 
-**Completed:** 3 weeks (M1 + M2)
-**Remaining:** 4 weeks (M3-M5)
+**Completed:** 4 weeks (M1 + M2 + M3)
+**Remaining:** 3 weeks (M4-M5)
 **Total Estimated Duration:** 7 weeks
 
-**Current Status:** ✅ M1 and M2 complete. System is production-ready with validated performance characteristics and scaling guidance. Ready to proceed with M3 feature development.
+**Current Status:** ✅ M1, M2, and M3 complete. System is production-ready with comprehensive load testing and performance optimizations. M3 achieved 316x improvement on initialize endpoint and validated system scaling requirements. Ready to proceed with M4 feature development.
 
 ---
 
 ## Success Metrics
 
-### Technical Metrics (Validated in M2)
+### Technical Metrics (Validated in M2 & M3)
+
+**M2 Performance:**
 - ✅ API response time: **3.63ms (p95)** @ 300 RPS - **98% better than target**
 - ✅ Event processing time: **21ms (p95)** @ 494 EPS - **58% better than target**
 - ✅ Event processing throughput: **494 EPS** (98.7% of 500 target)
 - ✅ Database query time: < 20ms per flush (batch UPSERT)
 - ✅ System stability: 99.95% success rate under combined load
 - ✅ Memory efficiency: 24-83 MB per service (87.5% reduction from estimates)
+
+**M3 Additional Optimizations:**
+- ✅ Initialize endpoint: **16.84ms (p95)** - **316x improvement** from baseline
+- ✅ Query optimization: **18.94ms (p95)** - **15.7x speedup**
+- ✅ Memory reduction: **45.8%** (231.2 GB → 125.4 GB allocations)
+- ✅ Event processing: **24.61ms (p95)** - Maintained excellent performance
+- ✅ System capacity: Single instance limits validated, scaling requirements documented
 
 ### Product Metrics
 - Challenge completion rate
@@ -1819,6 +1846,8 @@ export async function assignGoals(userId: string, challengeId: string): Promise<
 - **M2 Planning Spec**: [TECH_SPEC_M2.md](./TECH_SPEC_M2.md)
 - **M2 Results & Optimizations**: [TECH_SPEC_M2_OPTIMIZATION.md](./TECH_SPEC_M2_OPTIMIZATION.md) ⭐
 - **M2 Brainstorm**: [BRAINSTORM_M2.md](./BRAINSTORM_M2.md)
+- **M3 Technical Spec**: [TECH_SPEC_M3.md](./TECH_SPEC_M3.md)
+- **M3 Load Test Results**: [M3_LOADTEST_RESULTS.md](./M3_LOADTEST_RESULTS.md) ⭐
 
 ### Architecture & Design
 - **Database Design**: [TECH_SPEC_DATABASE.md](./TECH_SPEC_DATABASE.md)
@@ -1829,4 +1858,4 @@ export async function assignGoals(userId: string, challengeId: string): Promise<
 ---
 
 **Document Status:** Active - Updated as milestones progress
-**Last Updated:** 2025-10-29 (M2 completion)
+**Last Updated:** 2025-11-13 (M3 completion)

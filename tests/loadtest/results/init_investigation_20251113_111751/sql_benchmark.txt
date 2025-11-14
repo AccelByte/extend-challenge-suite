@@ -1,0 +1,118 @@
+Timing is on.
+================================================================================
+Quick Initialize Performance Benchmark
+================================================================================
+
+>>> Test 1: GetUserGoalCount (Fast Path Check)
+Testing: SELECT COUNT(*) FROM user_goal_progress WHERE user_id = $1
+
+ count 
+-------
+   500
+(1 row)
+
+Time: 3.589 ms
+NOTICE:  COUNT query (10 iterations):
+NOTICE:    Total time: 1.331000 ms
+NOTICE:    Average: 0.133100.2f ms
+NOTICE:    Result: 500 goals
+DO
+Time: 5.135 ms
+
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=255.65..255.66 rows=1 width=8) (actual time=0.056..0.057 rows=1 loops=1)
+   Buffers: shared hit=4
+   ->  Index Only Scan using idx_user_goal_count on user_goal_progress  (cost=0.43..254.24 rows=564 width=0) (actual time=0.018..0.038 rows=500 loops=1)
+         Index Cond: (user_id = 'user-000001'::text)
+         Heap Fetches: 0
+         Buffers: shared hit=4
+ Planning Time: 0.030 ms
+ Execution Time: 0.082 ms
+(8 rows)
+
+Time: 0.350 ms
+
+>>> Test 2: GetActiveGoals (Return Active Goals)
+Testing: SELECT * FROM user_goal_progress WHERE user_id = $1 AND is_active = true
+
+NOTICE:  SELECT query (10 iterations):
+NOTICE:    Total time: 0.747000 ms
+NOTICE:    Average: 0.074700.2f ms
+NOTICE:    Result: 500 active goals
+DO
+Time: 0.986 ms
+
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=2164.56..2165.97 rows=564 width=136) (actual time=0.893..0.909 rows=500 loops=1)
+   Sort Key: challenge_id, goal_id
+   Sort Method: quicksort  Memory: 107kB
+   Buffers: shared hit=6 read=15
+   ->  Bitmap Heap Scan on user_goal_progress  (cost=8.80..2138.79 rows=564 width=136) (actual time=0.042..0.213 rows=500 loops=1)
+         Recheck Cond: (((user_id)::text = 'user-000001'::text) AND is_active)
+         Heap Blocks: exact=15
+         Buffers: shared hit=3 read=15
+         ->  Bitmap Index Scan on idx_user_goal_active_only  (cost=0.00..8.66 rows=564 width=0) (actual time=0.026..0.026 rows=500 loops=1)
+               Index Cond: ((user_id)::text = 'user-000001'::text)
+               Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=43 read=2
+ Planning Time: 0.371 ms
+ Execution Time: 0.985 ms
+(15 rows)
+
+Time: 1.829 ms
+
+>>> Test 3: BulkInsert (10 Records - M3 Phase 9)
+Testing insert of 10 default-assigned goals for new user
+
+NOTICE:  BulkInsert 10 records (5 iterations):
+NOTICE:    Total time: 3.324000 ms
+NOTICE:    Average: 0.664800.2f ms
+DO
+Time: 6.277 ms
+
+>>> Test 4: BulkInsert (500 Records - Old Behavior)
+Testing insert of 500 goals (Phase 8 behavior that caused 17.58s p95)
+
+NOTICE:  BulkInsert 500 records (1 iteration):
+NOTICE:    Time: 24.735000.2f ms
+NOTICE:    Per-row: 0.04947000000000000000.3f ms
+DO
+Time: 67.317 ms
+
+>>> Test 5: Combined Fast Path (COUNT + SELECT)
+This simulates the actual initialize endpoint for returning users
+
+NOTICE:  Combined Fast Path (10 users):
+NOTICE:    Total time: 1.853000 ms
+NOTICE:    Average per user: 0.185300.2f ms
+NOTICE:    Expected p95 at 300 RPS: ~0.2779500.2f ms
+DO
+Time: 2.337 ms
+
+================================================================================
+Benchmark Summary
+================================================================================
+
+Expected Results:
+  - Test 1 (COUNT):        <1ms (index scan on user_id)
+  - Test 2 (SELECT):       <5ms (index scan + fetch ~500 rows)
+  - Test 3 (INSERT 10):    <5ms (small batch, good performance)
+  - Test 4 (INSERT 500):   10-50ms (large batch, expect higher overhead)
+  - Test 5 (Combined):     <10ms (fast path should be very fast)
+
+If results are significantly worse:
+  - Test 1/2 slow: Index not being used, check EXPLAIN ANALYZE output
+  - Test 3/4 slow: Check for table bloat, autovacuum, or lock contention
+  - Test 5 slow: Something is wrong with fast path logic
+
+Load Test Context (Phase 16 failure):
+  - Init phase p95: 17,580ms (17.58s) - should be <100ms
+  - Gameplay init p95: 20,430ms (20.43s) - should be <50ms
+  - If Test 5 shows <10ms, the problem is NOT in the SQL queries
+  - If Test 5 shows >1000ms, we found the bottleneck
+
+================================================================================
+Timing is off.
