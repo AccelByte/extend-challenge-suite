@@ -590,351 +590,172 @@ See [M3_LOADTEST_RESULTS.md](./M3_LOADTEST_RESULTS.md) for comprehensive testing
 
 ---
 
-## Milestone 4: Goal Pool Selection (Manual + Random)
 
-**Status:** 📋 Planned
-**Target Demo:** Pool-based goal selection - players choose from available pools or randomize
+## Milestone 4: Batch & Random Goal Selection
+
+**Status:** 📋 Planning Complete - Ready for Implementation
+**Planning Completed:** 2025-11-17
+**Target Demo:** Flexible goal selection - batch manual + random selection patterns
 **Dependencies:** M3 complete
+**Technical Spec:** [TECH_SPEC_M4.md](./TECH_SPEC_M4.md)
 
 ### Features
 
-#### Challenge Configuration: Goal Pools
+**Game Developer Flexibility:** M4 adds **two new selection patterns** while keeping M3's individual activation. Developers choose which pattern(s) to expose:
+- **Pattern 1**: Individual selection (M3) - one goal at a time
+- **Pattern 2**: Batch manual selection (M4) - multiple goals at once
+- **Pattern 3**: Random selection (M4) - system picks randomly
 
-Add `pools` array to challenge config for organizing goals into selectable collections:
-
-```json
-{
-  "id": "daily-challenges",
-  "name": "Daily Challenges",
-  "pools": [
-    {
-      "pool_id": "daily-quest-pool",
-      "name": "Daily Quest Pool",
-      "description": "Pick up to 3 daily quests from this pool",
-      "availability": {
-        "enabled": true,             // Can be disabled for limited-time pools
-        "start_time": null,          // null = always available
-        "end_time": null             // null = no expiry
-      },
-      "selection_rules": {
-        "max_selections": 3,         // Max goals player can have active from this pool
-        "min_selections": 0,         // Optional minimum (0 = not required)
-        "allow_reselection": true,   // Can deactivate and pick different goal?
-        "cooldown_seconds": 0        // Cooldown between reselections (0 = no cooldown)
-      },
-      "goal_ids": [
-        "daily-login",
-        "daily-10-kills",
-        "daily-3-matches",
-        "daily-5-headshots",
-        "daily-win-1-game",
-        "daily-assist-5-kills"
-      ]
-    },
-    {
-      "pool_id": "weekly-challenge-pool",
-      "name": "Weekly Challenge Pool",
-      "description": "Select 2 weekly challenges",
-      "availability": {
-        "enabled": true,
-        "start_time": "2025-10-30T00:00:00Z",  // Limited time pool
-        "end_time": "2025-11-06T00:00:00Z"
-      },
-      "selection_rules": {
-        "max_selections": 2,
-        "allow_reselection": false   // Cannot change once selected
-      },
-      "goal_ids": [
-        "weekly-50-kills",
-        "weekly-20-wins",
-        "weekly-100-headshots"
-      ]
-    }
-  ],
-  "goals": [
-    {
-      "id": "daily-login",
-      "name": "Daily Login",
-      "pool_id": "daily-quest-pool",  // Link goal to pool
-      "default_assigned": false,      // Not auto-assigned (must select from pool)
-      "requirement": { ... }
-    },
-    {
-      "id": "season-achievement",
-      "name": "Season Master",
-      "pool_id": null,                // Not in any pool (manual activation only)
-      "default_assigned": true,       // Auto-assigned to new players
-      "requirement": { ... }
-    }
-  ]
-}
-```
-
-**Pool Availability Types:**
-- **Always Available**: `start_time = null, end_time = null`
-- **Limited Time**: Specific start/end timestamps
-- **Disabled**: `enabled = false` (hidden from API)
-
-**Selection Rules:**
-- `max_selections`: Hard limit on concurrent active goals from pool
-- `allow_reselection`: Whether player can deactivate and pick different goal
-- `cooldown_seconds`: Delay between reselection actions (prevents rapid switching)
+**No configuration changes needed!** All goals in a challenge act as an implicit pool.
 
 #### API Endpoints
 
-**1. List Available Pools**
-```
-GET /v1/challenges/{challenge_id}/pools
+**1. Batch Manual Selection:**
 
-Response: {
-  "pools": [
-    {
-      "pool_id": "daily-quest-pool",
-      "name": "Daily Quest Pool",
-      "description": "Pick up to 3 daily quests from this pool",
-      "max_selections": 3,
-      "current_selections": 2,        // Player's current active count
-      "allow_reselection": true,
-      "available": true,              // Is pool currently available?
-      "availability_window": {
-        "start_time": null,
-        "end_time": null
-      }
-    }
-  ]
+```http
+POST /v1/challenges/{challenge_id}/goals/batch-select
+Body: {
+  "goal_ids": ["daily-login", "daily-10-kills", "daily-3-matches"],
+  "replace_existing": false
 }
 ```
 
-**2. Get Pool Details with Goals**
-```
-GET /v1/challenges/{challenge_id}/pools/{pool_id}
+**2. Random Goal Selection:**
+
+```http
+POST /v1/challenges/{challenge_id}/goals/random-select
+Body: {
+  "count": 3,                    // How many goals to randomly select
+  "replace_existing": false,     // Deactivate current active goals first?
+  "exclude_active": true         // Don't select already-active goals?
+}
 
 Response: {
-  "pool_id": "daily-quest-pool",
-  "name": "Daily Quest Pool",
-  "max_selections": 3,
-  "current_selections": 2,
-  "allow_reselection": true,
-  "available_goals": [
+  "selected_goals": [
     {
       "goal_id": "daily-login",
       "name": "Daily Login",
       "description": "Login to the game",
-      "selected": true,                // Player has this goal active
-      "current_progress": 1,
+      "status": "activated",
+      "progress": 0,
       "target": 1,
-      "status": "completed",
-      "reward": { "type": "WALLET", "reward_id": "GEMS", "quantity": 50 }
+      "is_active": true
     },
     {
       "goal_id": "daily-10-kills",
       "name": "Get 10 Kills",
-      "selected": true,
-      "current_progress": 7,
+      "status": "activated",
+      "progress": 0,
       "target": 10,
-      "status": "in_progress",
-      "reward": { ... }
+      "is_active": true
     },
     {
       "goal_id": "daily-3-matches",
       "name": "Play 3 Matches",
-      "selected": false,               // Available but not selected
-      "current_progress": 0,
+      "status": "activated",
+      "progress": 0,
       "target": 3,
-      "status": "not_started",
-      "reward": { ... }
+      "is_active": true
     }
-  ]
-}
-```
-
-**3. Manual Goal Selection**
-```
-POST /v1/challenges/{challenge_id}/pools/{pool_id}/select
-Body: {
-  "goal_ids": ["daily-login", "daily-10-kills", "daily-3-matches"]
-}
-
-Response: {
-  "activated_goals": [
-    { "goal_id": "daily-login", "status": "activated" },
-    { "goal_id": "daily-10-kills", "status": "activated" },
-    { "goal_id": "daily-3-matches", "status": "activated" }
   ],
-  "current_selections": 3,
-  "max_selections": 3
-}
-
-Errors:
-- 400: "Exceeds max_selections limit"
-- 400: "Reselection not allowed for this pool"
-- 400: "Reselection cooldown active (XX seconds remaining)"
-- 404: "Goal not found in pool"
-```
-
-**4. Random Goal Selection**
-```
-POST /v1/challenges/{challenge_id}/pools/{pool_id}/select-random
-Body: {
-  "count": 3,                         // How many goals to randomly select
-  "replace_existing": true            // Deactivate current selections first?
-}
-
-Response: {
-  "activated_goals": [
-    { "goal_id": "daily-5-headshots", "status": "activated" },
-    { "goal_id": "daily-win-1-game", "status": "activated" },
-    { "goal_id": "daily-assist-5-kills", "status": "activated" }
-  ],
-  "current_selections": 3,
-  "max_selections": 3
+  "challenge_id": "daily-challenges",
+  "total_active_goals": 3,
+  "replaced_goals": []  // Empty if replace_existing=false
 }
 ```
 
-**5. Deselect Goal from Pool**
-```
-DELETE /v1/challenges/{challenge_id}/pools/{pool_id}/goals/{goal_id}
+#### How It Works
 
-Response: {
-  "goal_id": "daily-login",
-  "status": "deactivated",
-  "current_selections": 2,
-  "max_selections": 3
-}
+**Smart Random Selection:**
+1. System fetches all goals from the challenge
+2. Auto-filters out:
+   - Goals with `status = 'completed'` or `'claimed'`
+   - Goals with unmet prerequisites (if any)
+   - Goals already active (if `exclude_active = true`)
+3. Randomly selects N goals from the filtered pool
+4. Activates selected goals (sets `is_active = true`)
+5. If `replace_existing = true`, deactivates current active goals first
 
-Errors:
-- 400: "Reselection not allowed for this pool"
-- 400: "Reselection cooldown active"
-```
-
-#### Selection Logic
-
-**Manual Selection Process:**
-```
-1. Validate pool availability:
-   - Pool enabled?
-   - Within availability window?
-
-2. Validate selection rules:
-   - Count <= max_selections?
-   - If reselecting, is allow_reselection = true?
-   - Cooldown expired? (check last reselection timestamp)
-
-3. If replace_existing = true:
-   - Deactivate all current selections from this pool
-   - Reset reselection cooldown
-
-4. For each goal_id in request:
-   - Validate goal exists in pool
-   - UPSERT user_goal_progress:
-     - is_active = true
-     - assigned_at = NOW()
-     - expires_at = NULL (M4 has no rotation yet)
-
-5. Return activated goals + updated selection count
-```
-
-**Random Selection Process:**
-```
-1. Same validation as manual selection
-
-2. Get available goals from pool:
-   - All goals in pool.goal_ids
-   - Optionally filter out already-selected goals (if replace_existing = false)
-
-3. Randomly select N goals:
-   - Pure random (equal probability)
-   - Optional: weighted by progress (goals closer to completion preferred)
-
-4. Same UPSERT logic as manual selection
-```
+**Parameters:**
+- `count`: Number of goals to randomly select (required)
+- `replace_existing`: Deactivate all active goals before selecting new ones (default: false)
+- `exclude_active`: Don't select already-active goals (default: false)
 
 #### Database Impact
 
 **No schema changes needed!** M3 schema already supports this:
 ```sql
--- M3 schema already has all needed columns
+-- Uses existing columns from M3
 CREATE TABLE user_goal_progress (
     user_id VARCHAR(100) NOT NULL,
     goal_id VARCHAR(100) NOT NULL,
-    is_active BOOLEAN NOT NULL DEFAULT true,  -- Selection status
-    assigned_at TIMESTAMP NULL,               -- When selected
-    expires_at TIMESTAMP NULL,                -- Not used until M5
+    is_active BOOLEAN NOT NULL DEFAULT true,  -- Random selection sets this
+    assigned_at TIMESTAMP NULL,               -- Set to NOW() when selected
+    expires_at TIMESTAMP NULL,                -- Not used in M4 (for M5 rotation)
     ...
 );
 ```
 
-**Pool Membership**: Stored in in-memory config cache (not database)
-- O(1) lookup: `config.Goals[goal_id].PoolID`
-- O(1) pool lookup: `config.Pools[pool_id]`
-
-**Reselection Cooldown Tracking:**
-- Option 1: Store in Redis with TTL (fast, distributed)
-- Option 2: Add `last_pool_reselection` timestamp to user_goal_progress
-- Recommended: Redis for simplicity (key: `cooldown:{user_id}:{pool_id}`)
-
 ### Success Criteria
 
-✅ Can define multiple pools per challenge in config
-✅ Pools can have availability windows (limited time OR always available)
-✅ Players can manually select goals from pool
-✅ Players can randomly select goals from pool
-✅ Players can deselect/reselect goals (if allowed)
-✅ max_selections enforced correctly
-✅ Reselection cooldown enforced correctly
-✅ GET endpoints show current selection status
-✅ Pool availability validated on all operations
+✅ **Pattern 1 (Individual)**: M3 API still works unchanged
+✅ **Pattern 2 (Batch)**: Players can activate multiple goals at once
+✅ **Pattern 3 (Random)**: Players can randomly activate N goals
+✅ Both new APIs support `replace_existing` mode
+✅ Random selection excludes completed/claimed goals automatically
+✅ Random selection excludes goals with unmet prerequisites
+✅ Batch selection validates all goals exist before activating any
+✅ All three patterns work together seamlessly
+✅ All tests pass with ≥80% coverage
+✅ Load tests validate p95 < 50ms
+✅ Linter reports 0 issues
 
 ### Example Use Cases
 
-**Use Case 1: Daily Quest Pool (Always Available, Reselection Allowed)**
-```json
-{
-  "pool_id": "daily-quest-pool",
-  "availability": { "enabled": true, "start_time": null, "end_time": null },
-  "selection_rules": {
-    "max_selections": 3,
-    "allow_reselection": true,
-    "cooldown_seconds": 3600  // 1 hour cooldown
-  }
-}
+**Use Case 1: Batch Manual Selection (Pattern 2)**
 ```
-Flow:
-1. Player logs in, sees 6 available daily quests
-2. Player manually selects 3 quests
-3. Player completes 1 quest, wants to swap it out
-4. Player deselects completed quest, selects new one (cooldown starts)
-5. After 1 hour, player can reselect again
+Player browses 10 available daily quests
+Player checks boxes next to 3 quests they like
+Player clicks "Activate Selected" button
+→ POST /v1/challenges/daily-challenges/goals/batch-select
+   Body: {
+     "goal_ids": ["daily-login", "daily-10-kills", "daily-3-matches"],
+     "replace_existing": false
+   }
+→ All 3 goals activated atomically
+→ Player sees "3 goals activated!" confirmation
+```
 
-**Use Case 2: Weekly Challenge Pool (Limited Time, No Reselection)**
-```json
-{
-  "pool_id": "weekly-pool",
-  "availability": {
-    "enabled": true,
-    "start_time": "2025-10-30T00:00:00Z",
-    "end_time": "2025-11-06T00:00:00Z"
-  },
-  "selection_rules": {
-    "max_selections": 2,
-    "allow_reselection": false
-  }
-}
+**Use Case 2: "Surprise Me" Button (Pattern 3)**
 ```
-Flow:
-1. Monday 00:00 UTC - Pool becomes available
-2. Player selects 2 challenging goals for the week
-3. Player commits to these goals (cannot change)
-4. Player works on them throughout the week
-5. Sunday 23:59 UTC - Pool closes (M5: rotation happens)
-
-**Use Case 3: "Surprise Me" Button (Random Selection)**
-```
+Player has no active goals
 Player clicks "Surprise Me" button
-→ POST /v1/challenges/daily-challenges/pools/daily-quest-pool/select-random
-   Body: { "count": 3, "replace_existing": true }
-→ System randomly picks 3 goals, deactivates old selections
-→ Player gets fresh random daily objectives
+→ POST /v1/challenges/daily-challenges/goals/random-select
+   Body: { "count": 3, "replace_existing": false, "exclude_active": false }
+→ System randomly picks 3 goals from all available goals
+→ Player gets 3 random goals activated instantly
+```
+
+**Use Case 3: "Refresh Selection" (Pattern 3 + Replace)**
+```
+Player has 3 active goals: [A, B, C]
+Player wants completely different random goals
+Player clicks "Refresh Random" button
+→ POST /v1/challenges/daily-challenges/goals/random-select
+   Body: { "count": 3, "replace_existing": true, "exclude_active": false }
+→ System deactivates [A, B, C]
+→ System randomly picks 3 new goals
+→ Player gets fresh random selection
+```
+
+**Use Case 4: Individual Selection (Pattern 1 - M3)**
+```
+Player wants to carefully choose specific goals
+Player clicks checkbox on "Daily Login" goal
+→ PUT /v1/challenges/daily-challenges/goals/daily-login/active
+   Body: { "is_active": true }
+→ Single goal activated
+→ Player repeats for other goals they want
 ```
 
 ---

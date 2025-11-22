@@ -298,6 +298,42 @@ type ProgressIncrement struct {
 }
 ```
 
+#### BatchUpsertGoalActive - Batch Version for Goal Activation/Deactivation (M4)
+
+```go
+// BatchUpsertGoalActive updates is_active status for multiple goals in a single database operation.
+// This is the M4 batch version for efficient random/batch goal selection.
+// Executes all updates in a single database transaction for performance.
+//
+// Use this in:
+//   - POST /goals/random-select (M4) - activating selected goals
+//   - POST /goals/batch-select (M4) - activating selected goals
+//   - Replace mode (M4) - deactivating existing goals before selecting new ones
+//
+// Behavior:
+//   - If row exists: sets is_active to the value from progresses[i].IsActive, updates assigned_at and updated_at
+//   - If row doesn't exist: creates new row with specified is_active value, status='not_started'
+//   - Does NOT modify progress or status of existing rows (only activation state)
+//   - Supports both activation (is_active=true) and deactivation (is_active=false)
+//
+// Performance: ~10ms for 10 goals (vs ~20-50ms with individual UpsertGoalActive loop)
+//
+// Implementation Strategy:
+//   1. Batch UPDATE for existing rows: SET is_active=data.is_active FROM UNNEST(goal_ids, is_active_vals)
+//   2. Batch INSERT for missing rows: INSERT ... ON CONFLICT DO UPDATE SET is_active=EXCLUDED.is_active
+//
+// Why UNNEST instead of hardcoded values:
+//   M4 replace mode requires deactivating existing goals (is_active=false) before selecting new ones.
+//   Using UNNEST allows the same method to handle both activation and deactivation efficiently.
+//
+// NOTE: This method is defined in GoalRepository (not TxRepository) following
+// the existing pattern where all batch operations are in the base interface.
+// TxRepository inherits this method via embedding.
+//
+// See: docs/TECH_SPEC_M4.md for full context on M4 batch/random selection
+BatchUpsertGoalActive(ctx context.Context, progresses []*domain.UserGoalProgress) error
+```
+
 **Method Selection Guide:**
 
 | Goal Type | Single Update | Batch Update (Flush) |
@@ -305,6 +341,12 @@ type ProgressIncrement struct {
 | `absolute` | `UpsertProgress` | `BatchUpsertProgress` |
 | `increment` (daily=false) | `IncrementProgress` | `BatchIncrementProgress` |
 | `increment` (daily=true) | `IncrementProgress` | `BatchIncrementProgress` |
+
+| Operation | Single Update | Batch Update |
+|-----------|--------------|--------------|
+| **Goal Activation (M3/M4)** | `UpsertGoalActive` | `BatchUpsertGoalActive` (M4) |
+
+**M4 Note:** Goal activation operations (setting `is_active=true`) now have a dedicated batch method for efficient random/batch selection endpoints. See [TECH_SPEC_M4.md](./TECH_SPEC_M4.md) for usage context.
 
 ---
 
@@ -931,7 +973,281 @@ Improvement: 50× faster, 1,000× fewer round trips
 - Recommended batch size: 1,000 increments (optimal performance)
 - For larger batches, split into multiple calls of 1,000 each
 
-### 4. Transaction Strategy for Buffered Flush
+### 4. Batch Upsert Goal Active (M4)
+
+**New in M4**: For efficient batch and random goal activation endpoints.
+
+This method optimizes the goal activation operation introduced in M3. Instead of calling `UpsertGoalActive` in a loop (N queries), it processes all activations in a single transaction with 2 queries total.
+
+**Use Cases:**
+- `POST /v1/challenges/{id}/goals/random-select` (M4)
+- `POST /v1/challenges/{id}/goals/batch-select` (M4)
+
+**SQL Implementation (PostgreSQL):**
+
+**Design Note:** This implementation uses UNNEST to map each goal to its specific `is_active` value, enabling both activation (`is_active = true`) and deactivation (`is_active = false`) through the same method. This flexibility is required for M4's replace mode, where existing goals are deactivated before selecting new ones.
+
+#### Step 1: Update Existing Rows
+
+```sql
+UPDATE user_goal_progress
+SET is_active = data.is_active,
+    assigned_at = NOW(),
+    updated_at = NOW()
+FROM (
+    SELECT UNNEST($2::text[]) AS goal_id, UNNEST($3::boolean[]) AS is_active
+) AS data
+WHERE user_goal_progress.user_id = $1
+  AND user_goal_progress.goal_id = data.goal_id;
+```
+
+**Parameters:**
+- `$1`: user_id (string)
+- `$2`: array of goal_ids (string[])
+- `$3`: array of is_active values (boolean[])
+
+**Behavior:**
+- Sets each goal's `is_active` to its corresponding value from the input array
+- Updates `assigned_at` timestamp to NOW()
+- Updates `updated_at` timestamp to NOW()
+- Does NOT modify `progress`, `status`, or other fields
+- Returns number of rows updated (may be 0 if goals don't exist yet)
+- Supports both activation (true) and deactivation (false)
+
+#### Step 2: Insert Missing Rows
+
+```sql
+INSERT INTO user_goal_progress (
+    user_id, goal_id, challenge_id, namespace,
+    progress, status, is_active, assigned_at,
+    created_at, updated_at, expires_at
+) VALUES
+    ($1, $2, $3, $4, 0, 'not_started', $5, NOW(), NOW(), NOW(), $6),
+    ($7, $8, $9, $10, 0, 'not_started', $11, NOW(), NOW(), NOW(), $12),
+    -- ... (one row per goal)
+ON CONFLICT (user_id, goal_id) DO UPDATE SET
+    is_active = EXCLUDED.is_active,
+    assigned_at = NOW(),
+    updated_at = NOW();
+```
+
+**Parameters (per row):**
+- `$1, $7, ...`: user_id
+- `$2, $8, ...`: goal_id
+- `$3, $9, ...`: challenge_id
+- `$4, $10, ...`: namespace
+- `$5, $11, ...`: is_active (boolean)
+- `$6, $12, ...`: expires_at (nullable, for M5 rotation)
+
+**Behavior:**
+- Creates new rows for goals that don't exist yet
+- Sets `is_active` to the specified value (true or false), `status = 'not_started'`, `progress = 0`
+- `ON CONFLICT DO UPDATE` handles race conditions where a row is created between Step 1 and Step 2
+- Updates `is_active` even if row already exists (idempotent)
+- Safe to include all goal IDs even if they exist
+
+**Total: 2 queries instead of N queries** (where N = number of goals)
+
+#### Go Implementation
+
+```go
+func (r *PostgresGoalRepository) BatchUpsertGoalActive(
+    ctx context.Context,
+    progresses []*domain.UserGoalProgress,
+) error {
+    if len(progresses) == 0 {
+        return nil
+    }
+
+    // Extract goal IDs and is_active values
+    goalIDs := make([]string, len(progresses))
+    isActiveVals := make([]bool, len(progresses))
+    userID := progresses[0].UserID // All progresses should have the same user_id
+
+    for i, p := range progresses {
+        goalIDs[i] = p.GoalID
+        isActiveVals[i] = p.IsActive
+    }
+
+    // Step 1: Batch UPDATE existing rows using UNNEST to map each goal to its is_active value
+    updateQuery := `
+        UPDATE user_goal_progress SET
+            is_active = data.is_active,
+            assigned_at = NOW(),
+            updated_at = NOW()
+        FROM (
+            SELECT UNNEST($2::text[]) AS goal_id, UNNEST($3::boolean[]) AS is_active
+        ) AS data
+        WHERE user_goal_progress.user_id = $1
+          AND user_goal_progress.goal_id = data.goal_id
+    `
+
+    result, err := r.db.ExecContext(ctx, updateQuery, userID, pq.Array(goalIDs), pq.Array(isActiveVals))
+    if err != nil {
+        return errors.ErrDatabaseError("batch update goal active", err)
+    }
+
+    // Check how many rows were updated
+    rowsUpdated, err := result.RowsAffected()
+    if err != nil {
+        return errors.ErrDatabaseError("check rows affected", err)
+    }
+
+    // If all rows were updated, we're done
+    if int(rowsUpdated) == len(progresses) {
+        return nil
+    }
+
+    // Step 2: Batch INSERT missing rows with actual is_active values
+    // Use ON CONFLICT DO UPDATE to handle race conditions
+    insertQuery := `
+        INSERT INTO user_goal_progress (
+            user_id, goal_id, challenge_id, namespace,
+            progress, status, is_active, assigned_at,
+            created_at, updated_at
+        ) VALUES
+    `
+
+    values := make([]interface{}, 0, len(progresses)*5) // 5 actual values per row
+    valuePlaceholders := make([]string, 0, len(progresses))
+
+    for i, p := range progresses {
+        offset := i * 5
+        valuePlaceholders = append(valuePlaceholders, fmt.Sprintf(
+            "($%d, $%d, $%d, $%d, 0, 'not_started', $%d, NOW(), NOW(), NOW())",
+            offset+1, offset+2, offset+3, offset+4, offset+5,
+        ))
+
+        values = append(values,
+            p.UserID,
+            p.GoalID,
+            p.ChallengeID,
+            p.Namespace,
+            p.IsActive, // Use actual is_active value
+        )
+    }
+
+    insertQuery += strings.Join(valuePlaceholders, ", ")
+    insertQuery += " ON CONFLICT (user_id, goal_id) DO UPDATE SET is_active = EXCLUDED.is_active, assigned_at = NOW(), updated_at = NOW()"
+
+    _, err = r.db.ExecContext(ctx, insertQuery, values...)
+    if err != nil {
+        return errors.ErrDatabaseError("batch insert goal active", err)
+    }
+
+    return nil
+}
+```
+
+#### Performance Characteristics
+
+| Approach | Queries | Time (10 goals) | Recommended? |
+|----------|---------|-----------------|--------------|
+| Loop `UpsertGoalActive` | 10-20 | 20-50ms | ⚠️ OK for MVP |
+| `BatchUpsertGoalActive` | 2 | ~10ms | ✅ Production |
+
+**Performance Breakdown (10 goals):**
+- Step 1 (UPDATE existing): 3-5ms
+- Step 2 (INSERT missing): 5-7ms
+- Total: ~10ms vs 20-50ms with individual UpsertGoalActive calls
+
+**Scalability:**
+- 10 goals: ~10ms (2 queries)
+- 50 goals: ~15ms (2 queries)
+- 100 goals: ~25ms (2 queries)
+- Query time scales with number of goals, but maintains 2 query count
+
+**Why Not Reuse Existing Batch Methods?**
+
+| Method | Why Not Suitable for M4 Goal Activation |
+|--------|----------------------------------------|
+| `BatchUpsertProgress` | Designed for progress updates, would overwrite existing progress values |
+| `BatchUpsertProgressWithCOPY` | UPDATE-only (no INSERT), optimized for event processing |
+| `BulkInsert` | INSERT-only with `ON CONFLICT DO NOTHING`, doesn't update existing rows |
+| `UpsertGoalActive` (loop) | Correct semantics but N queries instead of 2 |
+
+**Key Differences from Progress Updates:**
+- **Progress methods**: Update `progress`, `status`, `completed_at` fields
+- **Activation method**: Only updates `is_active`, `assigned_at`, `updated_at` fields
+- **Progress methods**: Used during event processing (frequent, buffered)
+- **Activation method**: Used during goal selection (infrequent, user-initiated)
+
+#### Usage in M4 Service Layer
+
+```go
+// Example: Random selection service method
+func (s *ChallengeService) RandomSelectGoals(
+    ctx context.Context,
+    userID string,
+    challengeID string,
+    count int,
+    replaceExisting bool,
+) (*RandomSelectionResult, error) {
+    // ... (filter available goals, random sample) ...
+
+    // Build batch of goals to activate
+    now := time.Now()
+    goalBatch := make([]*domain.UserGoalProgress, len(selectedGoalIDs))
+    for i, goalID := range selectedGoalIDs {
+        goalBatch[i] = &domain.UserGoalProgress{
+            UserID:      userID,
+            GoalID:      goalID,
+            ChallengeID: challengeID,
+            Namespace:   challenge.Namespace,
+            IsActive:    true,
+            AssignedAt:  &now,
+            ExpiresAt:   nil,  // M4: no rotation yet
+            Progress:    0,
+            Status:      "not_started",
+        }
+    }
+
+    // Single batch operation instead of N queries
+    err := s.repo.BatchUpsertGoalActive(ctx, goalBatch)
+    if err != nil {
+        return nil, fmt.Errorf("batch activate goals: %w", err)
+    }
+
+    // ... (build response) ...
+}
+```
+
+#### Transaction Integration
+
+When used within a transaction (e.g., after deactivating existing goals in replace mode):
+
+```go
+tx, err := s.repo.BeginTx(ctx)
+if err != nil {
+    return nil, err
+}
+defer tx.Rollback()
+
+// Step 1: Deactivate existing (if replace mode)
+if replaceExisting {
+    err = tx.DeactivateGoals(ctx, userID, activeGoalIDs)
+    if err != nil {
+        return nil, fmt.Errorf("deactivate goals: %w", err)
+    }
+}
+
+// Step 2: Activate selected goals (batch operation)
+err = tx.BatchUpsertGoalActive(ctx, goalBatch)
+if err != nil {
+    return nil, fmt.Errorf("batch activate goals: %w", err)
+}
+
+// Step 3: Commit transaction
+if err = tx.Commit(); err != nil {
+    return nil, err
+}
+```
+
+**See Also:**
+- [TECH_SPEC_M4.md](./TECH_SPEC_M4.md) - Full M4 specification with batch/random selection design
+- Section 6 below - "Get User Progress for Challenge" query used before selection
+
+### 5. Transaction Strategy for Buffered Flush
 
 **Decision (BRAINSTORM.md Q12):** Use **separate transactions** for absolute and increment buffer flushes.
 
@@ -1012,7 +1328,7 @@ func (r *BufferedRepository) Flush() error {
 
 ---
 
-### 5. Get User Progress for Challenge
+### 6. Get User Progress for Challenge
 
 ```sql
 SELECT * FROM user_goal_progress
@@ -1023,7 +1339,7 @@ WHERE user_id = $1 AND challenge_id = $2;
 **Index Used:** `idx_user_goal_progress_user_challenge`
 **Performance:** < 10ms for 1000 goals per challenge
 
-### 6. Get Progress for Specific Goal
+### 7. Get Progress for Specific Goal
 
 ```sql
 SELECT * FROM user_goal_progress
@@ -1034,7 +1350,7 @@ WHERE user_id = $1 AND goal_id = $2;
 **Index Used:** Primary key
 **Performance:** < 5ms
 
-### 5. Get Progress with Row Lock (Claim Flow)
+### 8. Get Progress with Row Lock (Claim Flow)
 
 ```sql
 SELECT * FROM user_goal_progress
@@ -1047,7 +1363,7 @@ FOR UPDATE;
 **Performance:** < 5ms
 **Locks:** Row-level exclusive lock until transaction commits
 
-### 6. Mark as Claimed
+### 9. Mark as Claimed
 
 ```sql
 UPDATE user_goal_progress
@@ -1064,7 +1380,7 @@ AND claimed_at IS NULL;
 **Performance:** < 5ms
 **Idempotency:** Returns 0 rows if already claimed (handled by business logic)
 
-### 7. Get All User Progress (All Challenges)
+### 10. Get All User Progress (All Challenges)
 
 ```sql
 SELECT * FROM user_goal_progress

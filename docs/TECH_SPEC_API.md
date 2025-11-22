@@ -1,13 +1,20 @@
 # Technical Specification: API Design
 
-**Version:** 1.0
-**Date:** 2025-10-15
+**Version:** 2.0
+**Date:** 2025-11-17
 **Parent:** [TECH_SPEC_M1.md](./TECH_SPEC_M1.md)
 
 ## Table of Contents
 1. [Overview](#overview)
 2. [Authentication](#authentication)
 3. [Endpoints](#endpoints)
+   - [Get User Challenges](#1-get-user-challenges)
+   - [Claim Goal Reward](#2-claim-goal-reward)
+   - [Initialize Player Goals](#3-initialize-player-goals-m3)
+   - [Set Goal Active/Inactive](#4-set-goal-activeinactive-m3)
+   - [Health Check](#5-health-check-fq5)
+   - [Batch Manual Selection (M4)](#6-batch-manual-selection-m4)
+   - [Random Goal Selection (M4)](#7-random-goal-selection-m4)
 4. [Error Handling](#error-handling)
 5. [HTTP Handler Implementation](#http-handler-implementation)
 
@@ -53,6 +60,10 @@ The template runs **3 servers simultaneously**:
 - **Read-heavy**: Most requests are GET (list challenges)
 - **Idempotent claims**: Claiming already-claimed reward returns 400 (not 500)
 - **No pagination**: M1 assumes reasonable number of challenges (<100 goals per user)
+- **Flexible selection (M4)**: Three patterns for goal activation:
+  - Individual manual (M3): PUT /goals/{goal_id}/active
+  - Batch manual (M4): POST /goals/batch-select
+  - Random selection (M4): POST /goals/random-select
 
 ---
 
@@ -584,6 +595,247 @@ grpc_health_v1.RegisterHealthServer(grpcServer, health.NewServer())
 
 ---
 
+### 6. Batch Manual Selection (M4)
+
+Activate multiple goals at once via explicit selection.
+
+```http
+POST /v1/challenges/{challenge_id}/goals/batch-select
+Authorization: Bearer <JWT>
+Content-Type: application/json
+```
+
+#### Request
+
+**Headers:**
+```
+Authorization: Bearer <JWT>
+Content-Type: application/json
+```
+
+**Path Parameters:**
+- `challenge_id`: Challenge identifier (e.g., `daily-challenges`)
+
+**Body:**
+```json
+{
+  "goal_ids": [
+    "daily-login",
+    "daily-10-kills",
+    "daily-3-matches"
+  ],
+  "replace_existing": false
+}
+```
+
+**Request Fields:**
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `goal_ids` | array | Yes | - | List of goal IDs to activate |
+| `replace_existing` | boolean | No | `false` | Deactivate existing active goals first |
+
+#### Response 200 OK
+
+```json
+{
+  "selected_goals": [
+    {
+      "goal_id": "daily-login",
+      "name": "Daily Login",
+      "status": "activated",
+      "progress": 0,
+      "target": 1,
+      "is_active": true
+    },
+    {
+      "goal_id": "daily-10-kills",
+      "name": "Get 10 Kills",
+      "status": "activated",
+      "progress": 0,
+      "target": 10,
+      "is_active": true
+    },
+    {
+      "goal_id": "daily-3-matches",
+      "name": "Play 3 Matches",
+      "status": "activated",
+      "progress": 0,
+      "target": 3,
+      "is_active": true
+    }
+  ],
+  "challenge_id": "daily-challenges",
+  "total_active_goals": 3,
+  "replaced_goals": []
+}
+```
+
+**Behavior:**
+- `replace_existing: true` → Deactivate all active goals in challenge, then activate specified goals
+- `replace_existing: false` → Keep existing active goals, add new activations (subject to max limit)
+- Atomic operation: All goals activated or none (transaction rollback on error)
+- Deactivated goals keep their progress (not reset to 0)
+
+#### Response 400 Bad Request
+
+**Scenario: Invalid Goal IDs**
+```json
+{
+  "errorCode": "INVALID_REQUEST",
+  "message": "Invalid goal IDs: goal-xyz does not exist in challenge daily-challenges"
+}
+```
+
+**Scenario: Empty Goal List**
+```json
+{
+  "errorCode": "INVALID_REQUEST",
+  "message": "goal_ids cannot be empty"
+}
+```
+
+#### Response 404 Not Found
+
+```json
+{
+  "errorCode": "CHALLENGE_NOT_FOUND",
+  "message": "Challenge 'invalid-id' not found"
+}
+```
+
+---
+
+### 7. Random Goal Selection (M4)
+
+System randomly selects and activates N goals from a challenge.
+
+```http
+POST /v1/challenges/{challenge_id}/goals/random-select
+Authorization: Bearer <JWT>
+Content-Type: application/json
+```
+
+#### Request
+
+**Headers:**
+```
+Authorization: Bearer <JWT>
+Content-Type: application/json
+```
+
+**Path Parameters:**
+- `challenge_id`: Challenge identifier (e.g., `daily-challenges`)
+
+**Body:**
+```json
+{
+  "count": 3,
+  "replace_existing": false,
+  "exclude_active": true
+}
+```
+
+**Request Fields:**
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `count` | int | Yes | - | Number of goals to randomly select |
+| `replace_existing` | boolean | No | `false` | Deactivate existing active goals first |
+| `exclude_active` | boolean | No | `false` | Exclude already-active goals from selection pool |
+
+#### Response 200 OK
+
+```json
+{
+  "selected_goals": [
+    {
+      "goal_id": "daily-login",
+      "name": "Daily Login",
+      "description": "Login to the game",
+      "requirement": {
+        "stat_code": "login_count",
+        "target_value": 1
+      },
+      "reward": {
+        "type": "WALLET",
+        "reward_id": "GEMS",
+        "quantity": 50
+      },
+      "status": "activated",
+      "progress": 0,
+      "is_active": true
+    },
+    {
+      "goal_id": "daily-10-kills",
+      "name": "Get 10 Kills",
+      "requirement": {
+        "stat_code": "enemy_kills",
+        "target_value": 10
+      },
+      "reward": {
+        "type": "ITEM",
+        "reward_id": "bronze_sword",
+        "quantity": 1
+      },
+      "status": "activated",
+      "progress": 0,
+      "is_active": true
+    }
+  ],
+  "challenge_id": "daily-challenges",
+  "total_active_goals": 2,
+  "replaced_goals": []
+}
+```
+
+**Smart Filtering (Auto-Applied):**
+- ✅ Excludes goals with `status = 'claimed'` (already got reward)
+- ✅ Excludes goals with `status = 'completed'` (completed but not claimed yet)
+- ✅ Excludes goals with unmet prerequisites
+- ✅ Optionally excludes already-active goals (if `exclude_active: true`)
+
+**Partial Results:**
+- If fewer goals are available than requested (but > 0), API returns all available goals
+- Example: Request 5 goals, only 3 available → returns 3 goals
+- Only returns error if 0 goals available after filtering
+
+#### Response 400 Bad Request
+
+**Scenario: Invalid Count**
+```json
+{
+  "errorCode": "INVALID_COUNT",
+  "message": "Count must be > 0",
+  "requested_count": 0
+}
+```
+
+**Scenario: No Goals Available**
+```json
+{
+  "errorCode": "INSUFFICIENT_GOALS",
+  "message": "No goals available for selection",
+  "available_count": 0,
+  "requested_count": 3,
+  "suggestion": "Complete or claim existing goals, or adjust filters"
+}
+```
+
+**Note:** This error only occurs when 0 goals are available. If 1-2 goals are available when 3 are requested, the API returns those 1-2 goals as a partial result (200 OK).
+
+#### Response 404 Not Found
+
+```json
+{
+  "errorCode": "CHALLENGE_NOT_FOUND",
+  "message": "Challenge 'invalid-id' not found",
+  "challenge_id": "invalid-id"
+}
+```
+
+---
+
 ## Error Handling
 
 ### Error Response Format
@@ -614,6 +866,8 @@ const (
     ErrCodeGoalNotCompleted = "GOAL_NOT_COMPLETED"
     ErrCodeAlreadyClaimed = "ALREADY_CLAIMED"
     ErrCodeGoalLocked = "GOAL_LOCKED"
+    ErrCodeInvalidCount = "INVALID_COUNT"           // M4: Count must be > 0
+    ErrCodeInsufficientGoals = "INSUFFICIENT_GOALS" // M4: No goals available for random selection
 
     // Not found errors (404)
     ErrCodeGoalNotFound = "GOAL_NOT_FOUND"
@@ -636,9 +890,12 @@ const (
 | 400 | `GOAL_NOT_COMPLETED` | Trying to claim incomplete goal |
 | 400 | `ALREADY_CLAIMED` | Trying to claim already-claimed goal |
 | 400 | `GOAL_LOCKED` | Prerequisites not met |
+| 400 | `INVALID_COUNT` | M4: Count must be > 0 for random selection |
+| 400 | `INSUFFICIENT_GOALS` | M4: No goals available for random selection |
 | 401 | `UNAUTHORIZED` | Invalid/expired JWT |
 | 403 | `FORBIDDEN` | Namespace mismatch |
 | 404 | `GOAL_NOT_FOUND` | Goal doesn't exist in config |
+| 404 | `CHALLENGE_NOT_FOUND` | Challenge doesn't exist in config |
 | 500 | `DATABASE_ERROR` | Database query failure |
 | 500 | `INTERNAL_ERROR` | Unexpected panic/error |
 | 502 | `REWARD_GRANT_FAILED` | AGS Platform Service failure |
@@ -812,6 +1069,32 @@ service Service {
       get: "/healthz"
     };
   }
+
+  // Batch manual selection (M4)
+  rpc BatchSelectGoals (BatchSelectRequest) returns (BatchSelectResponse) {
+    option (google.api.http) = {
+      post: "/v1/challenges/{challenge_id}/goals/batch-select"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Batch select goals";
+      description: "Activate multiple goals at once via explicit selection";
+      tags: "Challenges";
+    };
+  }
+
+  // Random goal selection (M4)
+  rpc RandomSelectGoals (RandomSelectRequest) returns (RandomSelectResponse) {
+    option (google.api.http) = {
+      post: "/v1/challenges/{challenge_id}/goals/random-select"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Random select goals";
+      description: "System randomly selects and activates N goals from a challenge";
+      tags: "Challenges";
+    };
+  }
 }
 
 // Request/Response Messages
@@ -839,6 +1122,45 @@ message HealthCheckRequest {}
 
 message HealthCheckResponse {
   string status = 1;
+}
+
+message BatchSelectRequest {
+  string challenge_id = 1;
+  repeated string goal_ids = 2;
+  bool replace_existing = 3;
+}
+
+message BatchSelectResponse {
+  repeated SelectedGoal selected_goals = 1;
+  string challenge_id = 2;
+  int32 total_active_goals = 3;
+  repeated string replaced_goals = 4;
+}
+
+message RandomSelectRequest {
+  string challenge_id = 1;
+  int32 count = 2;
+  bool replace_existing = 3;
+  bool exclude_active = 4;
+}
+
+message RandomSelectResponse {
+  repeated SelectedGoal selected_goals = 1;
+  string challenge_id = 2;
+  int32 total_active_goals = 3;
+  repeated string replaced_goals = 4;
+}
+
+message SelectedGoal {
+  string goal_id = 1;
+  string name = 2;
+  string description = 3;
+  Requirement requirement = 4;
+  Reward reward = 5;
+  string status = 6;
+  int32 progress = 7;
+  int32 target = 8;
+  bool is_active = 9;
 }
 
 // Domain Models

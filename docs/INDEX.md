@@ -56,6 +56,16 @@ Milestone 3 introduces time-based challenges, schedules, and rotation.
 
 ---
 
+## Technical Specifications (M4 Batch & Random Selection)
+
+Milestone 4 adds flexible goal selection patterns (planning complete).
+
+| Document | Description | Key Topics |
+|----------|-------------|------------|
+| [**TECH_SPEC_M4.md**](TECH_SPEC_M4.md) | M4 feature specification | Batch manual selection, random selection, BatchUpsertGoalActive |
+
+---
+
 ## Architecture & Design
 
 Deep dive into design decisions and system architecture.
@@ -194,6 +204,7 @@ Product requirements and demo app guides.
 - **M1**: [M1](TECH_SPEC_M1.md), [Database](TECH_SPEC_DATABASE.md), [API](TECH_SPEC_API.md), [Events](TECH_SPEC_EVENT_PROCESSING.md), [Config](TECH_SPEC_CONFIGURATION.md), [Testing](TECH_SPEC_TESTING.md), [Deployment](TECH_SPEC_DEPLOYMENT.md)
 - **M2**: [M2](TECH_SPEC_M2.md), [M2 Optimization](TECH_SPEC_M2_OPTIMIZATION.md)
 - **M3**: [M3](TECH_SPEC_M3.md)
+- **M4**: [M4](TECH_SPEC_M4.md)
 - **Cross-cutting**: [Observability](TECH_SPEC_OBSERVABILITY.md), [Template Architecture](TECH_SPEC_TEMPLATE_ARCHITECTURE.md), [Database Partitioning](TECH_SPEC_DATABASE_PARTITIONING.md)
 
 ### Design Documents
