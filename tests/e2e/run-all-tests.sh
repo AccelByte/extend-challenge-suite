@@ -53,6 +53,9 @@ TESTS=(
     # M3 feature tests
     "test-m3-initialization.sh"
     "test-inactive-goal-filtering.sh"
+    # M4 feature tests
+    "test-m4-batch-selection.sh"
+    "test-m4-random-selection.sh"
     # Error scenario tests
     "test-error-scenarios.sh"
     "test-reward-failures.sh"

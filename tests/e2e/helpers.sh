@@ -928,3 +928,147 @@ delete_test_user_by_email() {
 
     delete_test_user "$user_id"
 }
+
+# =====================================================
+# M4: Batch & Random Goal Selection Functions
+# =====================================================
+
+# Batch select goals (M4 feature)
+# Usage: batch_select_goals <challenge-id> "goal1,goal2,goal3" [replace_existing_bool]
+batch_select_goals() {
+    local challenge_id="$1"
+    local goal_ids="$2"
+    local replace_existing="${3:-false}"
+    
+    if [ -z "$challenge_id" ]; then
+        error_exit "batch_select_goals requires challenge_id parameter"
+    fi
+    
+    run_cli batch-select "$challenge_id" \
+        --goal-ids="$goal_ids" \
+        --replace-existing="$replace_existing" \
+        --format=json
+}
+
+# Random select goals (M4 feature)
+# Usage: random_select_goals <challenge-id> <count> [replace_existing_bool] [exclude_active_bool]
+random_select_goals() {
+    local challenge_id="$1"
+    local count="$2"
+    local replace_existing="${3:-false}"
+    local exclude_active="${4:-false}"
+    
+    if [ -z "$challenge_id" ] || [ -z "$count" ]; then
+        error_exit "random_select_goals requires challenge_id and count parameters"
+    fi
+    
+    run_cli random-select "$challenge_id" \
+        --count="$count" \
+        --replace-existing="$replace_existing" \
+        --exclude-active="$exclude_active" \
+        --format=json
+}
+
+# Get specific goal progress value from JSON response
+# Usage: get_goal_progress <json> <goal-id>
+# Returns: Progress value as integer
+get_goal_progress() {
+    local json="$1"
+    local goal_id="$2"
+    
+    if [ -z "$json" ] || [ -z "$goal_id" ]; then
+        error_exit "get_goal_progress requires json and goal_id parameters"
+    fi
+    
+    echo "$json" | jq -r ".challenges[].goals[] | select(.goalId == \"$goal_id\") | .progress // 0" 2>/dev/null || echo "0"
+}
+
+# Get specific goal active status from JSON response
+# Usage: get_goal_active_status <json> <goal-id>
+# Returns: "true" or "false"
+get_goal_active_status() {
+    local json="$1"
+    local goal_id="$2"
+    
+    if [ -z "$json" ] || [ -z "$goal_id" ]; then
+        error_exit "get_goal_active_status requires json and goal_id parameters"
+    fi
+    
+    echo "$json" | jq -r ".challenges[].goals[] | select(.goalId == \"$goal_id\") | .isActive // false" 2>/dev/null || echo "false"
+}
+
+# Assert less than or equal
+# Usage: assert_lte <actual> <expected> <message>
+assert_lte() {
+    local actual="$1"
+    local expected="$2"
+    local message="$3"
+    
+    if [ "$actual" -gt "$expected" ]; then
+        echo ""
+        echo -e "${RED}❌ ASSERTION FAILED${NC}"
+        if [ -n "$CURRENT_TEST_STEP" ]; then
+            echo -e "  ${BLUE}During:${NC} $CURRENT_TEST_STEP"
+        fi
+        echo -e "  ${BLUE}Message:${NC} $message"
+        echo -e "  ${BLUE}Expected:${NC} <= $expected"
+        echo -e "  ${BLUE}Actual:${NC}   $actual"
+        exit 1
+    fi
+    echo -e "${GREEN}✅ PASS${NC}: $message"
+}
+
+# Assert not contains (check if string does NOT contain substring)
+# Usage: assert_not_contains <haystack> <needle> <message>
+assert_not_contains() {
+    local haystack="$1"
+    local needle="$2"
+    local message="$3"
+    
+    if [[ "$haystack" == *"$needle"* ]]; then
+        echo ""
+        echo -e "${RED}❌ ASSERTION FAILED${NC}"
+        if [ -n "$CURRENT_TEST_STEP" ]; then
+            echo -e "  ${BLUE}During:${NC} $CURRENT_TEST_STEP"
+        fi
+        echo -e "  ${BLUE}Message:${NC} $message"
+        echo -e "  ${BLUE}String:${NC} $haystack"
+        echo -e "  ${BLUE}Should NOT contain:${NC} $needle"
+        exit 1
+    fi
+    echo -e "${GREEN}✅ PASS${NC}: $message"
+}
+
+# Get user progress (list all challenges with progress)
+# Returns: JSON response from list-challenges
+get_user_progress() {
+    run_cli list-challenges --format=json
+}
+
+# Complete a goal by triggering enough events to reach target
+# Usage: complete_goal <challenge-id> <goal-id>
+# Note: This is a simplified helper - actual implementation depends on goal requirements
+complete_goal() {
+    local challenge_id="$1"
+    local goal_id="$2"
+    
+    if [ -z "$challenge_id" ] || [ -z "$goal_id" ]; then
+        error_exit "complete_goal requires challenge_id and goal_id parameters"
+    fi
+    
+    # Get goal details to find the requirement
+    local challenges=$(get_user_progress)
+    local stat_code=$(echo "$challenges" | jq -r ".challenges[] | select(.challengeId == \"$challenge_id\") | .goals[] | select(.goalId == \"$goal_id\") | .requirement.statCode" 2>/dev/null)
+    local target=$(echo "$challenges" | jq -r ".challenges[] | select(.challengeId == \"$challenge_id\") | .goals[] | select(.goalId == \"$goal_id\") | .requirement.targetValue" 2>/dev/null)
+    
+    if [ -z "$stat_code" ] || [ "$stat_code" = "null" ]; then
+        echo -e "${YELLOW}⚠${NC} Warning: Could not determine stat code for goal $goal_id"
+        return 1
+    fi
+    
+    # Trigger event to update stat to target value
+    run_cli trigger-event stat-update --stat-code="$stat_code" --value="$target" > /dev/null 2>&1
+    
+    # Wait for event processing
+    wait_for_flush 2
+}

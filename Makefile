@@ -26,6 +26,8 @@ help:
 	@echo "  make test-e2e-mixed  - Test mixed goal types"
 	@echo "  make test-e2e-m3-init - Test M3 player initialization"
 	@echo "  make test-e2e-inactive - Test inactive goal filtering"
+	@echo "  make test-e2e-m4-batch - Test M4 batch goal selection"
+	@echo "  make test-e2e-m4-random - Test M4 random goal selection"
 	@echo "  make test-e2e-errors - Test error scenarios"
 	@echo "  make test-e2e-rewards - Test reward failures"
 	@echo "  make test-e2e-multiuser - Test multi-user isolation"
@@ -212,4 +214,19 @@ test-e2e-inactive:
 		cd tests/e2e && set -a && . ./.env && set +a && ./test-inactive-goal-filtering.sh; \
 	else \
 		cd tests/e2e && ./test-inactive-goal-filtering.sh; \
+	fi
+.PHONY: test-e2e-m4-batch
+test-e2e-m4-batch:
+	@if [ -f tests/e2e/.env ]; then \
+		cd tests/e2e && set -a && . ./.env && set +a && ./test-m4-batch-selection.sh; \
+	else \
+		cd tests/e2e && ./test-m4-batch-selection.sh; \
+	fi
+
+.PHONY: test-e2e-m4-random
+test-e2e-m4-random:
+	@if [ -f tests/e2e/.env ]; then \
+		cd tests/e2e && set -a && . ./.env && set +a && ./test-m4-random-selection.sh; \
+	else \
+		cd tests/e2e && ./test-m4-random-selection.sh; \
 	fi

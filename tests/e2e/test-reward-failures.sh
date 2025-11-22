@@ -242,6 +242,11 @@ cleanup_test_data
 
 echo "  Completing and claiming 3 different goals..."
 
+# Activate goals first (M3/M4 requirement)
+activate_goal "$CHALLENGE_ID" "login-today" > /dev/null
+activate_goal "$CHALLENGE_ID" "play-3-matches" > /dev/null
+activate_goal "winter-challenge-2025" "complete-tutorial" > /dev/null
+
 # Goal 1: login-today (daily goal, from daily-quests)
 run_cli trigger-event login
 wait_for_flush 2
