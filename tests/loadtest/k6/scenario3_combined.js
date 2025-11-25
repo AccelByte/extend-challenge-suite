@@ -30,6 +30,14 @@ statClient.load(['../../extend-challenge-event-handler/pkg/proto/accelbyte-async
 let loginConnected = false;
 let statConnected = false;
 
+function createHeaders(user, token) {
+  return {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json',
+    'X-Mock-User-Id': user.id,  // Mock auth header for load testing
+  };
+}
+
 export let options = {
   scenarios: {
     // API load scenario
@@ -62,10 +70,11 @@ export let options = {
 // API load function
 export function apiLoad() {
   const userIndex = Math.floor(Math.random() * users.length);
+  const user = users[userIndex];
   const token = tokens[userIndex];
 
   const resp = http.get(`${BASE_URL}/v1/challenges`, {
-    headers: { 'Authorization': `Bearer ${token}` },
+    headers: createHeaders(user, token),
   });
 
   check(resp, {

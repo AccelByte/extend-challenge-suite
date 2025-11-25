@@ -36,6 +36,14 @@ statClient.load(['../../../extend-challenge-event-handler/pkg/proto/accelbyte-as
 let loginConnected = false;
 let statConnected = false;
 
+function createHeaders(user, token) {
+  return {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json',
+    'X-Mock-User-Id': user.id,  // Mock auth header for load testing
+  };
+}
+
 export let options = {
   scenarios: {
     // Phase 1: Init burst (0-30s, 100 RPS) - Quick initialization
@@ -93,10 +101,7 @@ export function initializationPhase() {
     `${BASE_URL}/v1/challenges/initialize`,
     '{}',
     {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
+      headers: createHeaders(user, token),
       tags: {
         endpoint: 'initialize',
         phase: 'init',
@@ -133,10 +138,7 @@ export function apiGameplayPhase() {
       `${BASE_URL}/v1/challenges/initialize`,
       '{}',
       {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers: createHeaders(user, token),
         tags: {
           endpoint: 'initialize',
           phase: 'gameplay',
@@ -163,10 +165,7 @@ export function apiGameplayPhase() {
       `${BASE_URL}/v1/challenges/${challenge.challengeId}/goals/${goal.goalId}/active`,
       JSON.stringify({ is_active: isActive }),
       {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers: createHeaders(user, token),
         tags: {
           endpoint: 'set_active',
           action: isActive ? 'activate' : 'deactivate',
@@ -188,7 +187,7 @@ export function apiGameplayPhase() {
   else if (roll < 0.30) {
     // First get challenges to find completed goal
     const getChallengesResp = http.get(`${BASE_URL}/v1/challenges?active_only=true`, {
-      headers: { 'Authorization': `Bearer ${token}` },
+      headers: createHeaders(user, token),
     });
 
     if (getChallengesResp.status === 200) {
@@ -201,7 +200,7 @@ export function apiGameplayPhase() {
           `${BASE_URL}/v1/challenges/${goal.challengeId}/goals/${goal.goalId}/claim`,
           null,
           {
-            headers: { 'Authorization': `Bearer ${token}` },
+            headers: createHeaders(user, token),
             tags: { endpoint: 'claim' },
           }
         );
@@ -220,7 +219,7 @@ export function apiGameplayPhase() {
       : `${BASE_URL}/v1/challenges`;
 
     const resp = http.get(url, {
-      headers: { 'Authorization': `Bearer ${token}` },
+      headers: createHeaders(user, token),
       tags: {
         endpoint: 'challenges',
         active_only: useActiveOnly.toString(),

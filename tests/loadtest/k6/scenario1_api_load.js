@@ -31,6 +31,14 @@ export let options = {
   },
 };
 
+function createHeaders(user, token) {
+  return {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json',
+    'X-Mock-User-Id': user.id,  // Mock auth header for load testing
+  };
+}
+
 export default function() {
   // Randomly select user and token
   const userIndex = Math.floor(Math.random() * users.length);
@@ -40,7 +48,7 @@ export default function() {
   // Test GET /v1/challenges (80% of requests)
   if (Math.random() < 0.8) {
     const resp = http.get(`${BASE_URL}/v1/challenges`, {
-      headers: { 'Authorization': `Bearer ${token}` },
+      headers: createHeaders(user, token),
     });
 
     check(resp, {
@@ -55,7 +63,7 @@ export default function() {
   else {
     // First get challenges to find completed goal
     const getChallengesResp = http.get(`${BASE_URL}/v1/challenges`, {
-      headers: { 'Authorization': `Bearer ${token}` },
+      headers: createHeaders(user, token),
     });
 
     if (getChallengesResp.status === 200) {
@@ -67,7 +75,7 @@ export default function() {
         const claimResp = http.post(
           `${BASE_URL}/v1/challenges/${goal.challengeId}/goals/${goal.goalId}/claim`,
           null,
-          { headers: { 'Authorization': `Bearer ${token}` } }
+          { headers: createHeaders(user, token) }
         );
 
         check(claimResp, {

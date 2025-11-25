@@ -28,12 +28,15 @@ services:
       timeout: 5s
       retries: 5
     # Enable pg_stat_statements for performance monitoring
+    # Set max_connections to 300 to handle load test bursts (150 VUs + 500 EPS + overhead)
     command:
       - "postgres"
       - "-c"
       - "shared_preload_libraries=pg_stat_statements"
       - "-c"
       - "pg_stat_statements.track=all"
+      - "-c"
+      - "max_connections=300"
 
   redis:
     image: redis:7-alpine

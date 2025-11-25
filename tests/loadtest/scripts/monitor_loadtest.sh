@@ -47,7 +47,7 @@ echo ""
 
 # Function to check if k6 is still running
 check_k6_running() {
-    pgrep -f "k6 run.*scenario3_combined" > /dev/null
+    pgrep -f "k6 run" > /dev/null
     return $?
 }
 
