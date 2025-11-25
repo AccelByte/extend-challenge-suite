@@ -6,8 +6,9 @@
 
 ## Table of Contents
 1. [Overview](#overview)
-2. [Authentication](#authentication)
-3. [Endpoints](#endpoints)
+2. [Client Integration Requirements](#client-integration-requirements)
+3. [Authentication](#authentication)
+4. [Endpoints](#endpoints)
    - [Get User Challenges](#1-get-user-challenges)
    - [Claim Goal Reward](#2-claim-goal-reward)
    - [Initialize Player Goals](#3-initialize-player-goals-m3)
@@ -15,8 +16,8 @@
    - [Health Check](#5-health-check-fq5)
    - [Batch Manual Selection (M4)](#6-batch-manual-selection-m4)
    - [Random Goal Selection (M4)](#7-random-goal-selection-m4)
-4. [Error Handling](#error-handling)
-5. [HTTP Handler Implementation](#http-handler-implementation)
+5. [Error Handling](#error-handling)
+6. [HTTP Handler Implementation](#http-handler-implementation)
 
 ---
 
@@ -64,6 +65,93 @@ The template runs **3 servers simultaneously**:
   - Individual manual (M3): PUT /goals/{goal_id}/active
   - Batch manual (M4): POST /goals/batch-select
   - Random selection (M4): POST /goals/random-select
+
+---
+
+## Client Integration Requirements
+
+> **IMPORTANT**: Game clients MUST follow these integration requirements for the Challenge Service to function correctly.
+
+### Required: Call `/initialize` on Every Game Session Start
+
+```http
+POST /v1/challenges/initialize
+Authorization: Bearer <JWT>
+```
+
+**When to call:**
+- ✅ **Every time the game client starts** (not just first login)
+- ✅ **After user authentication completes** (JWT must be valid)
+- ✅ **Before displaying challenges UI** (ensures data is ready)
+
+**Why this is required:**
+
+| Purpose | Description |
+|---------|-------------|
+| **New player setup** | Creates goal progress rows for players who never played before |
+| **Config sync** | Assigns new goals added to config since last login |
+| **Rotation sync** | Updates baselines for daily/weekly goals (M5) |
+| **Stat baseline capture** | Records current stat values for relative progress tracking (M5) |
+
+**Performance characteristics:**
+- First call (new player): ~10-20ms (creates rows, fetches stats)
+- Subsequent calls (returning player): ~1-2ms (fast SELECT, no writes if nothing changed)
+
+**What happens if you DON'T call `/initialize`:**
+- ❌ New players won't have any goals assigned
+- ❌ Players won't receive newly added goals from config updates
+- ❌ Daily/weekly goals won't reset properly (M5)
+- ❌ Relative progress tracking won't work correctly (M5)
+
+### Recommended: Client Integration Flow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Game Client Startup                       │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  1. User launches game                                       │
+│           │                                                  │
+│           ▼                                                  │
+│  2. Authenticate with AGS IAM → Get JWT                      │
+│           │                                                  │
+│           ▼                                                  │
+│  3. POST /v1/challenges/initialize  ← REQUIRED               │
+│           │                                                  │
+│           ▼                                                  │
+│  4. GET /v1/challenges → Display challenges UI               │
+│           │                                                  │
+│           ▼                                                  │
+│  5. User plays game → Events update progress automatically   │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Example Integration Code
+
+```typescript
+// Game client startup
+async function onGameStart() {
+  // 1. Authenticate
+  const jwt = await agsIAM.login(username, password);
+
+  // 2. Initialize challenges (REQUIRED - do this every session!)
+  await challengeService.initialize(jwt);
+
+  // 3. Fetch and display challenges
+  const challenges = await challengeService.getChallenges(jwt);
+  displayChallengesUI(challenges);
+}
+
+// Call on every game session start
+onGameStart();
+```
+
+### Do NOT:
+- ❌ Cache the initialize response and skip calling it
+- ❌ Only call initialize for new players
+- ❌ Call initialize only when displaying challenges UI
+- ❌ Assume challenges will work without calling initialize
 
 ---
 
