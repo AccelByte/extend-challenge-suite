@@ -694,6 +694,10 @@ These Go utilities serve a **dual role**:
 1. **API handlers**: In-memory display — detect rotation and show reset state without DB writes
 2. **Event enrichment**: Compute `rotation_boundary` and `new_expires_at` values for the enhanced temp table
 
+> **Read-only vs mutating functions:**
+> - `HasRotationOccurred()` — **read-only**. Used by GET handlers (`/challenges`, `/challenges/{id}`) to detect if a rotation boundary has passed. Returns a boolean; does not write to the database.
+> - `ApplyRotationReset()` — **mutating**. Used by Initialize/Select handlers and event processing to actually reset progress and write new `baseline_value`, `expires_at`, etc. to the database.
+
 ```go
 // rotation.go - Shared rotation utilities (global rotation only in M5)
 
@@ -870,7 +874,7 @@ M5 requires the `inc_value` (increment delta) from each event for baseline compu
 | **Statistic update** | `msg.Payload.LatestValue` → `statValue` | `msg.Payload.LatestValue` → `statValue` + `msg.Payload.Inc` → `incValue` |
 | **Login event** | Synthetic `statValue=1` | Synthetic `statValue=1` + synthetic `incValue=1` |
 
-**Current code** (`statisticHandler.go:135`):
+**Current code** (`pkg/service/statisticHandler.go:135`):
 ```go
 statValue := int(msg.Payload.LatestValue)
 ```
@@ -882,6 +886,23 @@ incValue := int(msg.Payload.Inc)  // NEW: extract increment for baseline computa
 ```
 
 For login events, `incValue=1` is always synthetic (login events don't carry stat increments).
+
+**ProcessEvent signature change:**
+
+M5 changes `ProcessEvent` to accept a `StatUpdate` struct instead of a bare `int` value:
+
+```go
+// StatUpdate carries both the absolute value and the increment delta.
+// For login events: Value=nil, Inc=1 (no absolute stat value available).
+// For stat events:  Value=&latestValue, Inc=incValue.
+type StatUpdate struct {
+    Value *int // nil for login events (no absolute stat value)
+    Inc   int  // increment delta; always >= 1
+}
+```
+
+- **statisticHandler**: creates `StatUpdate{Value: &statValue, Inc: incValue}`
+- **loginHandler**: creates `StatUpdate{Value: nil, Inc: 1}` (synthetic increment, no absolute value)
 
 ### Unified COPY Path
 
@@ -900,11 +921,29 @@ M1-M4 uses two separate flush paths with separate buffers. M5 unifies these into
 |------|--------|-------|------------|
 | Unified COPY | Single buffer with `progress`, `inc_value`, `progress_mode` | All goals | `BatchUpsertProgressWithCOPY()` (enhanced) |
 
+**Unified buffer entry type:**
+
+```go
+// BufferedEvent is the single buffer entry type that replaces the 3 separate
+// buffer maps (buffer, bufferIncrement, bufferIncrementDaily).
+type BufferedEvent struct {
+    UserID       string
+    GoalID       string
+    ChallengeID  string
+    Namespace    string
+    Progress     *int      // nil for login events (no absolute stat value)
+    IncValue     int       // increment delta; always >= 1
+    ProgressMode string    // "absolute" or "relative"
+}
+```
+
+The unified buffer is `map[string]*BufferedEvent` keyed by `userID:goalID`.
+
 **Key changes:**
 - Single buffer replaces 3 separate maps (`buffer`, `bufferIncrement`, `bufferIncrementDaily`)
-- `progress` is nullable in the temp table — `NULL` for login events where only `inc_value` is known
+- `Progress` is nullable (`*int`) — `nil` for login events where only `IncValue` is known
 - SQL CASE handles accumulation: when `progress IS NULL`, use `ugp.progress + temp.inc_value`
-- Login events: buffered as `{progress: NULL, inc_value: 1}` — SQL does the accumulation
+- Login events: buffered as `{Progress: nil, IncValue: 1}` — SQL does the accumulation
 - The `IncrementProgress()` method and UNNEST flush path are removed
 
 #### Enhanced Temp Table Schema
@@ -1080,14 +1119,9 @@ SET
     END,
 
     -- Expires: update on rotation
+    -- Note: No special branch needed for claimed+reselectable — the generic
+    -- rotation branch below covers all stale rows regardless of status.
     expires_at = CASE
-        -- Claimed + reselectable + stale: set new expiry for fresh period
-        WHEN ugp.status = 'claimed'
-             AND temp.allow_reselection = true
-             AND temp.new_expires_at IS NOT NULL
-             AND temp.rotation_boundary IS NOT NULL
-             AND ugp.updated_at < temp.rotation_boundary
-            THEN temp.new_expires_at
         WHEN temp.new_expires_at IS NOT NULL
              AND temp.rotation_boundary IS NOT NULL
              AND ugp.updated_at < temp.rotation_boundary
@@ -1185,7 +1219,7 @@ Without allow_reselection (default):
 
 ## Implementation Phases
 
-### Phase 0.5: GoalType → ProgressMode Migration + Inc Extraction (2 days)
+### Phase 0.5: GoalType → ProgressMode Migration + Inc Extraction (3-4 days)
 
 **Prerequisite for all other M5 phases.** This phase replaces the legacy `GoalType` system with `ProgressMode` and adds `Inc` field extraction from AGS events.
 
@@ -1202,7 +1236,15 @@ Without allow_reselection (default):
 - [ ] Update all unit tests (~34 files affected)
 - [ ] Run linter: `golangci-lint run ./...`
 
-### Phase 1: Unified COPY Path (1.5 days)
+### Phase 1: Database Schema (0.5 day)
+
+> **Rationale:** The `baseline_value` column must exist before the Unified COPY Path can reference it in SQL CASE expressions.
+
+- [ ] Add `baseline_value INT NULL` column to existing migration (`extend-challenge-service/migrations/001_create_user_goal_progress.up.sql`)
+- [ ] Update `UserGoalProgress` struct in domain models with `BaselineValue` field
+- [ ] No new migration file needed (update existing)
+
+### Phase 2: Unified COPY Path (1.5 days)
 
 Replace the dual-buffer architecture with a single unified buffer and COPY flush.
 
@@ -1215,12 +1257,6 @@ Replace the dual-buffer architecture with a single unified buffer and COPY flush
 - [ ] Remove `startDailyBufferCleanup()` goroutine (no longer needed)
 - [ ] Update unit tests for new buffer structure
 - [ ] Run linter: `golangci-lint run ./...`
-
-### Phase 2: Database Schema (0.5 day)
-
-- [ ] Add `baseline_value INT NULL` column to existing migration (`extend-challenge-service/migrations/001_create_user_goal_progress.up.sql`)
-- [ ] Update `UserGoalProgress` struct in domain models with `BaselineValue` field
-- [ ] No new migration file needed (update existing)
 
 ### Phase 3: Config Schema (0.5 day)
 
@@ -1273,7 +1309,7 @@ Port the SQL CASE rotation logic from benchmarks to production code.
 - [ ] Add verify tests for `allow_reselection` scenarios
 - [ ] Run full linter and coverage check: target ≥ 80%
 
-**Total: ~10.5 days**
+**Total: ~12-13 days**
 
 > **Note:** No background scheduler phase needed! Rotation is handled lazily in all API endpoints and event handlers.
 
