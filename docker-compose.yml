@@ -53,7 +53,11 @@ services:
 
   # Backend Service (REST API + gRPC)
   challenge-service:
-    build: ./extend-challenge-service
+    build:
+      context: ./extend-challenge-service
+      args:
+        TARGETOS: ${TARGETOS:-linux}
+        TARGETARCH: ${TARGETARCH:-amd64}
     image: challenge-service:0.0.1
     container_name: challenge-service
     ports:
@@ -84,7 +88,11 @@ services:
   # Note: Event handler tested via direct gRPC calls (no Kafka needed locally)
   # In production, AGS Extend platform provides Kafka and delivers events via gRPC
   challenge-event-handler:
-    build: ./extend-challenge-event-handler
+    build:
+      context: ./extend-challenge-event-handler
+      args:
+        TARGETOS: ${TARGETOS:-linux}
+        TARGETARCH: ${TARGETARCH:-amd64}
     image: challenge-event-handler:0.0.1
     container_name: challenge-event-handler
     ports:
