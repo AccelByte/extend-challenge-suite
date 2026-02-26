@@ -1264,40 +1264,40 @@ Without allow_reselection (default):
 
 **Prerequisite for all other M5 phases.** This phase replaces the legacy `GoalType` system with `ProgressMode` and adds `Inc` field extraction from AGS events.
 
-- [ ] Add `ProgressMode` field to `Requirement` struct in `extend-challenge-common/pkg/domain/models.go`
-- [ ] Remove `GoalType` enum, `Goal.Type` field, and `Goal.Daily` field
-- [ ] Update config JSON schema: replace `type`/`daily` with `requirement.progress_mode`
-- [ ] Update config loader and validator to parse `progress_mode`
-- [ ] Update `challenges.json` config files (convert all goals)
-- [ ] Refactor `EventProcessor.ProcessEvent()`: replace 3-way `GoalType` switch with `ProgressMode` switch
-- [ ] Remove `processIncrementGoal()` and `processDailyGoal()` — unified into single path
-- [ ] Extract `Inc` field from AGS statistic events (`msg.Payload.Inc` → `incValue`)
-- [ ] Synthesize `incValue=1` for login events
-- [ ] Update `ProcessEvent()` signature to pass both `statValue` and `incValue`
-- [ ] Update all unit tests (~34 files affected)
-- [ ] Run linter: `golangci-lint run ./...`
+- [x] Add `ProgressMode` field to `Requirement` struct in `extend-challenge-common/pkg/domain/models.go`
+- [x] Remove `GoalType` enum, `Goal.Type` field, and `Goal.Daily` field
+- [x] Update config JSON schema: replace `type`/`daily` with `requirement.progress_mode`
+- [x] Update config loader and validator to parse `progress_mode`
+- [x] Update `challenges.json` config files (convert all goals)
+- [x] Refactor `EventProcessor.ProcessEvent()`: replace 3-way `GoalType` switch with `ProgressMode` switch
+- [x] Remove `processIncrementGoal()` and `processDailyGoal()` — unified into single path
+- [x] Extract `Inc` field from AGS statistic events (`msg.Payload.Inc` → `incValue`)
+- [x] Synthesize `incValue=1` for login events
+- [x] Update `ProcessEvent()` signature to pass both `statValue` and `incValue`
+- [x] Update all unit tests (~34 files affected)
+- [x] Run linter: `golangci-lint run ./...`
 
 ### Phase 1: Database Schema (0.5 day)
 
 > **Rationale:** The `baseline_value` column must exist before the Unified COPY Path can reference it in SQL CASE expressions.
 
-- [ ] Add `baseline_value INT NULL` column to existing migration (`extend-challenge-service/migrations/001_create_user_goal_progress.up.sql`)
-- [ ] Update `UserGoalProgress` struct in domain models with `BaselineValue` field
-- [ ] No new migration file needed (update existing)
+- [x] Add `baseline_value INT NULL` column to existing migration (`extend-challenge-service/migrations/001_create_user_goal_progress.up.sql`)
+- [x] Update `UserGoalProgress` struct in domain models with `BaselineValue` field
+- [x] No new migration file needed (update existing)
 
 ### Phase 2: Unified COPY Path (1.5 days)
 
 Replace the dual-buffer architecture with a single unified buffer and COPY flush.
 
-- [ ] Replace 3 buffer maps (`buffer`, `bufferIncrement`, `bufferIncrementDaily`) with single unified buffer
-- [ ] Remove `IncrementProgress()` method from `BufferedRepository`
-- [ ] Remove `BatchIncrementProgress()` (UNNEST path) from `GoalRepository`
-- [ ] Update `UpdateProgress()` to accept `incValue` alongside progress
-- [ ] Update `BatchUpsertProgressWithCOPY()` to include `inc_value` and `progress_mode` columns
-- [ ] Handle NULL progress in COPY (login events: progress=NULL, inc_value=1)
-- [ ] Remove `startDailyBufferCleanup()` goroutine (no longer needed)
-- [ ] Update unit tests for new buffer structure
-- [ ] Run linter: `golangci-lint run ./...`
+- [x] Replace 3 buffer maps (`buffer`, `bufferIncrement`, `bufferIncrementDaily`) with single unified buffer
+- [x] Remove `IncrementProgress()` method from `BufferedRepository`
+- [x] Remove `BatchIncrementProgress()` (UNNEST path) from `GoalRepository`
+- [x] Update `UpdateProgress()` to accept `incValue` alongside progress
+- [x] Update `BatchUpsertProgressWithCOPY()` to include `inc_value` and `progress_mode` columns
+- [x] Handle NULL progress in COPY (login events: progress=NULL, inc_value=1)
+- [x] Remove `startDailyBufferCleanup()` goroutine (no longer needed)
+- [x] Update unit tests for new buffer structure
+- [x] Run linter: `golangci-lint run ./...`
 
 ### Phase 3: Config Schema (0.5 day)
 
