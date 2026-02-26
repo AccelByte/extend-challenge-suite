@@ -9070,5 +9070,128 @@
         }
       ]
     }
+    ,
+    {
+      "id": "daily-challenges",
+      "name": "Daily Challenges",
+      "description": "Complete daily rotating goals for rewards",
+      "goals": [
+        {
+          "id": "daily-challenges-goal-01",
+          "name": "Daily Kills",
+          "description": "Get 10 kills today",
+          "event_source": "statistic",
+          "requirement": {
+            "stat_code": "kills",
+            "operator": ">=",
+            "target_value": 10,
+            "progressMode": "relative"
+          },
+          "reward": {
+            "type": "WALLET",
+            "reward_id": "GOLD",
+            "quantity": 50
+          },
+          "prerequisites": [],
+          "rotation": {
+            "enabled": true,
+            "type": "global",
+            "schedule": "daily",
+            "on_expiry": {
+              "reset_progress": true,
+              "allow_reselection": true
+            }
+          }
+        },
+        {
+          "id": "daily-challenges-goal-02",
+          "name": "Daily Wins",
+          "description": "Win 3 matches today",
+          "event_source": "statistic",
+          "requirement": {
+            "stat_code": "wins",
+            "operator": ">=",
+            "target_value": 3,
+            "progressMode": "relative"
+          },
+          "reward": {
+            "type": "WALLET",
+            "reward_id": "GEMS",
+            "quantity": 25
+          },
+          "prerequisites": [],
+          "rotation": {
+            "enabled": true,
+            "type": "global",
+            "schedule": "daily",
+            "on_expiry": {
+              "reset_progress": true,
+              "allow_reselection": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "weekly-challenges",
+      "name": "Weekly Challenges",
+      "description": "Complete weekly rotating goals for bigger rewards",
+      "goals": [
+        {
+          "id": "weekly-challenges-goal-01",
+          "name": "Weekly Kills",
+          "description": "Get 100 kills this week",
+          "event_source": "statistic",
+          "requirement": {
+            "stat_code": "kills",
+            "operator": ">=",
+            "target_value": 100,
+            "progressMode": "relative"
+          },
+          "reward": {
+            "type": "WALLET",
+            "reward_id": "GOLD",
+            "quantity": 500
+          },
+          "prerequisites": [],
+          "rotation": {
+            "enabled": true,
+            "type": "global",
+            "schedule": "weekly",
+            "on_expiry": {
+              "reset_progress": true,
+              "allow_reselection": true
+            }
+          }
+        },
+        {
+          "id": "weekly-challenges-goal-02",
+          "name": "Weekly Wins",
+          "description": "Win 20 matches this week",
+          "event_source": "statistic",
+          "requirement": {
+            "stat_code": "wins",
+            "operator": ">=",
+            "target_value": 20,
+            "progressMode": "relative"
+          },
+          "reward": {
+            "type": "WALLET",
+            "reward_id": "GEMS",
+            "quantity": 250
+          },
+          "prerequisites": [],
+          "rotation": {
+            "enabled": true,
+            "type": "global",
+            "schedule": "weekly",
+            "on_expiry": {
+              "reset_progress": true,
+              "allow_reselection": true
+            }
+          }
+        }
+      ]
+    }
   ]
 }

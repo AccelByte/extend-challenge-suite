@@ -1301,11 +1301,11 @@ Replace the dual-buffer architecture with a single unified buffer and COPY flush
 
 ### Phase 3: Config Schema (0.5 day)
 
-- [ ] Add `rotation` config block to Goal struct
-- [ ] Add rotation config validation (schedule values, on_expiry fields)
-- [ ] Validate `rotation.enabled=true` requires `progress_mode="relative"` (reject absolute goals with rotation)
-- [ ] Update config cache to include rotation metadata
-- [ ] Update `challenges.json` with rotation config for daily/weekly goals
+- [x] Add `rotation` config block to Goal struct
+- [x] Add rotation config validation (schedule values, on_expiry fields)
+- [x] Validate `rotation.enabled=true` requires `progress_mode="relative"` (reject absolute goals with rotation)
+- [x] Update config cache to include rotation metadata
+- [x] Update `challenges.json` with rotation config for daily/weekly goals
 
 ### Phase 4: Rotation Detection Utilities (1 day)
 
