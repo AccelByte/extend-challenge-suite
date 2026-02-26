@@ -1348,8 +1348,8 @@ Port the SQL CASE rotation logic from benchmarks to production code.
 - [ ] Unit tests for baseline initialization
 - [ ] Integration tests for full rotation flow
 - [ ] E2E tests: daily challenge completion across rotation
-- [ ] Add `allow_reselection` branches to benchmark SQL in `bench_3_sql_rotation_test.go`
-- [ ] Add verify tests for `allow_reselection` scenarios
+- [x] Add `allow_reselection` branches to benchmark SQL in `bench_3_sql_rotation_test.go`
+- [x] Add verify tests for `allow_reselection` scenarios
 - [ ] Run full linter and coverage check: target ≥ 80%
 
 ### Phase 8: Documentation Updates (1.5 days)
@@ -1584,7 +1584,7 @@ Instead of updating rows during rotation:
 
 > **STATUS: ✅ RESOLVED** — Benchmarks run 2026-02-25 against 100K rows (10K users × 10 goals) on PostgreSQL 15. Source: `tests/benchmarks/`. All questions Q3-Q5 are now answered with hard data.
 >
-> **Note:** Benchmarks validate core SQL CASE patterns (rotation detection, baseline init, status computation). The `allow_reselection` branches are M5 additions designed in the spec but not yet present in the benchmark code — they will be added in Phase 7.
+> **Note:** Benchmarks validate core SQL CASE patterns (rotation detection, baseline init, status computation, `reset_progress`, and `allow_reselection`). NULL progress (login event accumulation) paths are deferred to Phase 7 integration tests.
 
 ### Benchmark Summary
 
@@ -1724,7 +1724,7 @@ When the first stat event arrives with `progress=153, inc=3`, the SQL computes `
 
 ### Correctness Verification
 
-Six tests in `tests/benchmarks/verify_test.go` validate the SQL CASE approach:
+Ten tests in `tests/benchmarks/verify_test.go` validate the SQL CASE approach:
 
 | Test | Validates |
 |------|-----------|
@@ -1734,6 +1734,10 @@ Six tests in `tests/benchmarks/verify_test.go` validate the SQL CASE approach:
 | `AbsoluteBaselineStaysNull` | Absolute mode never sets baseline_value |
 | `FirstEventInitializesBaseline` | NULL baseline initialized from first event |
 | `CrossApproachComparison` | SQL CASE matches app-side rotation logic |
+| `CompletedGoalPreservedWhenResetProgressFalse` | `reset_progress=false` preserves completed status across rotation |
+| `ClaimedGoalResetWithAllowReselection` | `allow_reselection=true` resets claimed goals on rotation |
+| `InProgressPreservedWhenResetProgressFalse` | `reset_progress=false` preserves in-progress across rotation |
+| `CompletedGoalRotatedExplicitResetProgress` | Explicit `reset_progress=true` resets completed goals |
 
 ### How to Reproduce
 
