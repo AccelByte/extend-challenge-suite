@@ -233,7 +233,6 @@ CREATE TABLE user_goal_progress (
     "enabled": true,
     "type": "global",
     "schedule": "daily",           // Predefined: "daily", "weekly", "monthly"
-    "timezone": "UTC",
     "on_expiry": {
       "reset_progress": true,
       "allow_reselection": true    // Allow re-attempting claimed goals after rotation
@@ -390,8 +389,7 @@ Weekly rotation (Monday 00:00 UTC):
 
 **Changes:**
 - **Detect rotation lazily** for existing goals (returning players)
-- Set `baseline_value` for relative progress goals (new assignments)
-- Set `expires_at` based on rotation config
+- Set `expires_at` based on rotation config (baseline is NOT set here — derived from first event, see Q6)
 
 **Implementation:**
 ```go
@@ -1273,7 +1271,7 @@ Replace the dual-buffer architecture with a single unified buffer and COPY flush
 - [ ] Implement `HasRotationOccurred()` (global only)
 - [ ] Implement `ApplyRotationReset()`
 - [ ] Add to shared package (`extend-challenge-common`)
-- [ ] Unit tests for all boundary calculations (daily, weekly, monthly)
+- [ ] Unit tests for boundary calculation utilities in isolation (daily, weekly, monthly schedules)
 
 ### Phase 5: SQL CASE Rotation (1.5 days)
 
@@ -1292,15 +1290,16 @@ Port the SQL CASE rotation logic from benchmarks to production code.
 - [ ] Add lazy rotation detection to POST /initialize (returning players)
 - [ ] Add lazy rotation detection to GET /challenges
 - [ ] Add lazy rotation detection to GET /challenges/{id}
-- [ ] Add lazy rotation detection to POST /claim
+- [ ] Add lazy rotation detection to POST /claim (reject if goal rotated since completion; allow if `allow_reselection=true`)
+- [ ] Implement `calculateDisplayedProgress()` utility (returns `progress - baseline` for relative, raw `progress` for absolute)
 - [ ] Update response with `expires_at` and `expires_in_seconds`
 - [ ] Add rotation status endpoint (`GET /v1/challenges/{id}/rotation`)
-- [ ] Batch update for rotated rows
+- [ ] Batch update for rotated rows in Initialize endpoint (`BatchInsertProgress` for new, `BatchUpdateProgress` for rotated)
 - [ ] Update optimized HTTP handler for GET /challenges (feature parity with gRPC handler)
 
 ### Phase 7: Testing + Benchmark Updates (1.5 days)
 
-- [ ] Unit tests for rotation boundary calculations
+- [ ] Integration tests for rotation boundary calculations in full event + API flow
 - [ ] Unit tests for lazy rotation detection
 - [ ] Unit tests for baseline initialization
 - [ ] Integration tests for full rotation flow
@@ -1309,7 +1308,76 @@ Port the SQL CASE rotation logic from benchmarks to production code.
 - [ ] Add verify tests for `allow_reselection` scenarios
 - [ ] Run full linter and coverage check: target ≥ 80%
 
-**Total: ~12-13 days**
+### Phase 8: Documentation Updates (1.5 days)
+
+Update existing documentation to reflect all M5 changes. No new document files — bring existing specs in sync with ProgressMode, rotation config, unified buffer, SQL CASE rotation, and new API fields.
+
+> **Two audiences:** Game-developer-facing docs (how to use — prioritized first) and internal/operational docs (how it works).
+
+#### 8A: Game-Developer-Facing Docs
+
+**`docs/TECH_SPEC_CONFIGURATION.md`** (~18 GoalType refs to replace):
+- [ ] Replace "Goal Types" section with "Progress Modes" (`absolute`/`relative`), remove `type` and `daily` fields from schema
+- [ ] Add `rotation` config block schema: `enabled`, `type`, `schedule`, `on_expiry.reset_progress`, `on_expiry.allow_reselection`
+- [ ] Add complete config examples: daily rotating goal, weekly rotating goal, monthly rotating goal, non-rotating absolute goal
+- [ ] Add "GoalType to ProgressMode Migration" section with before/after config for each old type
+- [ ] Update config validation rules for `progress_mode` enum and `rotation` block constraints
+
+**`docs/TECH_SPEC_API.md`**:
+- [ ] Add `expires_at` and `expires_in_seconds` fields to all goal response schema examples
+- [ ] Document rotation status endpoint: `GET /v1/challenges/{challenge_id}/rotation`
+- [ ] Update Initialize endpoint: document lazy rotation detection for returning players
+- [ ] Update GET /challenges: document in-memory rotation display (read-only, no DB writes)
+- [ ] Finalize Client Integration Requirements section (M5 placeholders already at lines 93-104)
+- [ ] Add "Rotation Behavior for Clients" section: `expires_at` handling, UI countdown, polling strategy
+
+**`docs/TECH_SPEC_EVENT_PROCESSING.md`** (~26 GoalType refs to replace):
+- [ ] Replace "Goal Type Routing" section with "Progress Mode Handling" (2-way switch replaces 3-way)
+- [ ] Document unified COPY path replacing dual buffer architecture (3 buffer maps → 1 `BufferedEvent` map)
+- [ ] Document SQL CASE rotation logic in batch UPDATE (summary from TECH_SPEC_M5.md §Event Processing Changes)
+- [ ] Document `Inc` field extraction from AGS events (`msg.Payload.Inc`) and synthetic `incValue=1` for logins
+- [ ] Document baseline initialization via SQL CASE (`baseline = progress - inc_value`)
+- [ ] Remove references to `IncrementProgress()`, `BatchIncrementProgress()`, UNNEST flush path, `bufferIncrement`/`bufferIncrementDaily`
+
+#### 8B: Internal/Operational Docs
+
+**`docs/TECH_SPEC_DATABASE.md`** (~3 GoalType refs):
+- [ ] Add `baseline_value INT NULL` column to schema and Column Descriptions table
+- [ ] Update full CREATE TABLE listing to match post-M5 schema
+- [ ] Add note on SQL CASE patterns used in event processing (reference TECH_SPEC_M5.md)
+
+**`docs/TECH_SPEC_TESTING.md`** (~19 GoalType refs):
+- [ ] Update test fixtures and examples to use `progress_mode` instead of GoalType
+- [ ] Add rotation test scenarios (daily rotation, baseline reset, allow_reselection)
+
+**`docs/TECH_SPEC_OBSERVABILITY.md`** (~2 GoalType refs):
+- [ ] Update metric labels and log field references from GoalType to ProgressMode
+
+**`docs/STATUS.md`**:
+- [ ] Update current phase to M5, add M4 completion summary
+
+**`docs/MILESTONES.md`**:
+- [ ] Update M4 status to Complete, M5 status to current state
+
+**`docs/INDEX.md`**:
+- [ ] Add TECH_SPEC_M5.md entry, update version header
+
+**`README.md`** (project root):
+- [ ] Update feature list: replace "3 Goal Types" with "2 Progress Modes", add rotation features
+- [ ] Update current release label to M5
+
+**`CLAUDE.md`** (project root):
+- [ ] Update Core Data Model schema example with `baseline_value` column
+- [ ] Update GoalType references to ProgressMode in project description
+
+#### 8C: Verification
+
+- [ ] Grep all docs for stale references: `GoalType`, `type: "increment"`, `type: "daily"`, `daily: true/false`
+- [ ] Cross-check config JSON examples across docs for consistency
+- [ ] Update TECH_SPEC_M5.md status from "Draft" to "Complete"
+- [ ] Verify all cross-document links resolve
+
+**Total: ~13.5-14.5 days**
 
 > **Note:** No background scheduler phase needed! Rotation is handled lazily in all API endpoints and event handlers.
 
