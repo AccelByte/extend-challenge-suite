@@ -1309,13 +1309,13 @@ Replace the dual-buffer architecture with a single unified buffer and COPY flush
 
 ### Phase 4: Rotation Detection Utilities (1 day)
 
-- [ ] Implement `CalculateLastRotationBoundary()` (global only)
-- [ ] Implement `CalculateNextRotationBoundary()` (global only)
-- [ ] Implement `CalculateNextExpiresAt()` (global only)
-- [ ] Implement `HasRotationOccurred()` (global only)
-- [ ] Implement `ApplyRotationReset()`
-- [ ] Add to shared package (`extend-challenge-common`)
-- [ ] Unit tests for boundary calculation utilities in isolation (daily, weekly, monthly schedules)
+- [x] Implement `CalculateLastRotationBoundary()` (global only)
+- [x] Implement `CalculateNextRotationBoundary()` (global only)
+- [x] Implement `CalculateNextExpiresAt()` (global only)
+- [x] Implement `HasRotationOccurred()` (global only)
+- [x] Implement `ApplyRotationReset()`
+- [x] Add to shared package (`extend-challenge-common`)
+- [x] Unit tests for boundary calculation utilities in isolation (daily, weekly, monthly schedules)
 
 ### Phase 5: SQL CASE Rotation (1.5 days)
 
