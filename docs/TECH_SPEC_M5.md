@@ -1421,7 +1421,100 @@ Update existing documentation to reflect all M5 changes. No new document files �
 - [ ] Update TECH_SPEC_M5.md status from "Draft" to "Complete"
 - [ ] Verify all cross-document links resolve
 
-**Total: ~13.5-14.5 days**
+### Phase 9: Loadtest Fixture and Script Updates (1.5 days)
+
+Update loadtest infrastructure to exercise M5 rotation: mixed absolute/relative goals, `inc` field in stat events, rotation status endpoint, and the claim-reset-reattempt cycle.
+
+> **Rationale:** The fixture has only 4 relative+rotation goals out of 508 total. For meaningful load testing of the SQL CASE rotation path, we need ~18% rotating goals. K6 stat events also lack the `inc` field M5 uses for baseline computation.
+
+> **Dependencies:** Can start after Phase 3 (config schema). Does not block Phases 4-8.
+
+#### 9A: Expand Rotation Fixtures
+
+- [ ] Expand `daily-challenges` in `tests/loadtest/fixtures/challenges.json` from 2 to 50 goals (daily rotation, `progressMode: "relative"`, `allow_reselection: true`), using stat codes in the event mix: `enemy_kills`, `login_count`, `games_played`, `headshots`, `wins`
+- [ ] Expand `weekly-challenges` from 2 to 50 goals (weekly rotation, `progressMode: "relative"`, `allow_reselection: true`), with higher `target_value` than daily goals
+- [ ] Verify total fixture has ~554 goals: ~454 absolute + ~50 daily + ~50 weekly (~18% rotation)
+- [ ] Copy updated fixture to both service config directories
+
+#### 9B: Add `inc` Field to K6 Stat Events
+
+- [ ] Update `scenario3_combined.js` `eventLoad()`: add `inc: Math.floor(Math.random() * 10) + 1` to stat event `payload`
+- [ ] Update `scenario4_m4_realistic_sessions.js` `eventLoad()`: same `inc` field
+- [ ] Update `scenario2_event_load.js` `eventLoad()`: same for consistency
+
+#### 9C: Update Scenario 4 for M5 User Journeys
+
+- [ ] Add rotation status check step: `GET /v1/challenges/{challenge_id}/rotation` with tag `{endpoint: 'rotation_status'}`, validate `rotation.enabled` and `current_period.expires_in_seconds`
+- [ ] Add threshold: `'http_req_duration{endpoint:rotation_status}': ['p(95)<100']`
+- [ ] Update `getSpecificChallenge()` to validate `expires_at` presence on rotation goal responses
+- [ ] Update `claimGoal()` to use a goal ID from `daily-challenges` (claimed goals reset by rotation)
+- [ ] Update goal selection functions to alternate between regular and rotation challenges (50/50)
+
+#### 9D: Create Scenario 5 — M5 Rotation Stress Test
+
+- [ ] Create `tests/loadtest/k6/scenario5_m5_rotation.js` with two executors:
+  - `rotation_api` (`per-vu-iterations`, 150 VUs, 120 iterations): rotation-focused user journey
+  - `rotation_events` (`constant-arrival-rate`, 500 EPS): stat events targeting rotation goal stat codes with `inc` field
+- [ ] Implement `rotationUserSession()`: initialize → GET /challenges (validate `expires_at`) → batch-select from daily-challenges → gameplay sleep → GET rotation status → check progress → claim (30%) → session gap
+- [ ] Add M5 thresholds: `rotation_status p95 < 100ms`, `browse_challenges p95 < 500ms`
+- [ ] Add option to seed stale rows (`DB_SEED_STALE_ROWS` env var): UPDATE `updated_at` to yesterday for 40% of rotation goal rows, simulating returning users after rotation boundary
+
+#### 9E: Smoke Test
+
+- [ ] Run `scenario3_smoke.js` (5 min) with updated config to verify `inc` field is accepted without errors
+- [ ] Verify `GET /v1/challenges` returns `expires_at` / `expires_in_seconds` for rotation goals (manual curl)
+
+### Phase 10: Run Loadtests and Generate M5 Performance Report (1.5 days)
+
+Execute updated loadtest scenarios, collect profiles, and produce a performance comparison report documenting M5 overhead vs M4 baseline.
+
+> **Rationale:** Go benchmarks predicted 1.2x event overhead and ~0x GET overhead. This phase validates those predictions under sustained concurrent load with container resource limits and database contention.
+
+> **Dependencies:** Blocks on all prior phases (4-8 must be complete for M5 code to be production-ready). Phase 9 must also be complete for updated fixtures and scripts.
+
+#### 10A: Pre-Test Setup
+
+- [ ] Rebuild and restart services with M5 code
+- [ ] Verify services healthy: `curl localhost:8000/challenge/healthz`
+- [ ] Enable pg_stat_statements, truncate data, reset stats
+- [ ] Record M4 baseline metrics from `tests/loadtest/results/scenario4_20251124_110149/` for comparison
+
+#### 10B: Run Scenario 3 (Combined Load — 30 min)
+
+- [ ] Run `scenario3_combined.js` at 300 RPS + 500 EPS for 30 min
+- [ ] Collect k6 output, pprof profiles (CPU/heap/goroutine/mutex at 15-min mark), docker stats
+- [ ] Compare gRPC event p95 against M4 baseline (target: < 1.3x)
+
+#### 10C: Run Scenario 4 (Realistic Sessions — 30 min)
+
+- [ ] Reset database, run `scenario4_m4_realistic_sessions.js` at 150 VUs x 120 iterations + 500 EPS
+- [ ] Collect k6 output and profiles
+- [ ] Verify all thresholds pass: batch-select p95 < 50ms, random-select p95 < 50ms, rotation-status p95 < 100ms
+
+#### 10D: Run Scenario 5 (M5 Rotation Stress — 30 min)
+
+- [ ] Reset database, optionally seed stale rows (`DB_SEED_STALE_ROWS=true`)
+- [ ] Run `scenario5_m5_rotation.js` at 150 VUs x 120 iterations + 500 EPS
+- [ ] Collect k6 output and profiles
+- [ ] Verify `expires_at` checks pass (> 99%), compare event p95 with/without stale rows
+
+#### 10E: Generate Performance Report
+
+- [ ] Create `docs/M5_PERFORMANCE_RESULTS.md` with: Executive Summary, Test Environment, Results by Scenario
+- [ ] Include M5 vs M4 event processing comparison table (gRPC p95, avg, overhead vs 1.2x prediction)
+- [ ] Include M5 vs M4 API endpoint comparison table (per-endpoint p95: GET /challenges, initialize, batch-select, random-select, claim, rotation status)
+- [ ] Include pprof analysis: top 5 CPU consumers in event handler, new hotspots from SQL CASE
+- [ ] Include database analysis: pg_stat_statements for COPY+UPDATE query (mean_exec_time, calls)
+- [ ] Include resource utilization: CPU/memory for both services under load
+- [ ] Add scaling recommendations: additional DB cost for rotation-heavy workloads, connection pool sizing
+
+#### 10F: Update Documentation
+
+- [ ] Link `M5_PERFORMANCE_RESULTS.md` from `TECH_SPEC_M5.md` Performance Benchmark Results section
+- [ ] Update `docs/PERFORMANCE_BASELINE.md` with M5 numbers (new baseline for M6)
+- [ ] Update `tests/loadtest/README.md` with scenario 5 description and run instructions
+
+**Total: ~16.5-17.5 days**
 
 > **Note:** No background scheduler phase needed! Rotation is handled lazily in all API endpoints and event handlers.
 
