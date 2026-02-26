@@ -1321,13 +1321,13 @@ Replace the dual-buffer architecture with a single unified buffer and COPY flush
 
 Port the SQL CASE rotation logic from benchmarks to production code.
 
-- [ ] Extend temp table with M5 metadata columns (`progress_mode`, `inc_value`, `target_value`, `rotation_boundary`, `new_expires_at`, `allow_reselection`)
-- [ ] Implement event enrichment from config cache (compute rotation boundary + next expiry)
-- [ ] Implement SQL CASE UPDATE statement (port from `bench_3_sql_rotation_test.go`)
-- [ ] Add `allow_reselection` support: temp table column, WHERE clause, CASE branches for claimed+stale reset
-- [ ] Handle NULL progress in SQL CASE (`COALESCE(temp.progress, ugp.progress + temp.inc_value)`)
-- [ ] Adapt verify tests from `tests/benchmarks/verify_test.go` to production code
-- [ ] Unit tests for event enrichment logic
+- [x] Extend temp table with M5 metadata columns (`progress_mode`, `inc_value`, `target_value`, `rotation_boundary`, `new_expires_at`, `allow_reselection`)
+- [x] Implement event enrichment from config cache (compute rotation boundary + next expiry)
+- [x] Implement SQL CASE UPDATE statement (port from `bench_3_sql_rotation_test.go`)
+- [x] Add `allow_reselection` support: temp table column, WHERE clause, CASE branches for claimed+stale reset
+- [x] Handle NULL progress in SQL CASE (`COALESCE(temp.progress, ugp.progress + temp.inc_value)`)
+- [x] Adapt verify tests from `tests/benchmarks/verify_test.go` to production code
+- [x] Unit tests for event enrichment logic
 
 ### Phase 6: API Handler Updates (2 days)
 
