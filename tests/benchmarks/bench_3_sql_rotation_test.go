@@ -95,14 +95,16 @@ func generateRotationBatch(size int, staleOnly bool) []eventRow {
 		}
 
 		batch = append(batch, eventRow{
-			UserID:       userID,
-			GoalID:       goalID,
-			ChallengeID:  challengeID,
-			Namespace:    namespace,
-			Progress:     108,
-			IncValue:     3,
-			TargetValue:  10,
-			ProgressMode: mode,
+			UserID:           userID,
+			GoalID:           goalID,
+			ChallengeID:      challengeID,
+			Namespace:        namespace,
+			Progress:         108,
+			IncValue:         3,
+			TargetValue:      10,
+			ProgressMode:     mode,
+			ResetProgress:    true,
+			AllowReselection: false,
 		})
 	}
 	return batch
@@ -133,6 +135,8 @@ func sqlRotationBatch(ctx context.Context, db *sql.DB, batch []eventRow) error {
 			target_value       INT          NOT NULL DEFAULT 0,
 			rotation_boundary  TIMESTAMP    NULL,
 			new_expires_at     TIMESTAMP    NULL,
+			allow_reselection  BOOLEAN      NOT NULL DEFAULT false,
+			reset_progress     BOOLEAN      NOT NULL DEFAULT true,
 			updated_at         TIMESTAMP    NOT NULL DEFAULT NOW()
 		) ON COMMIT DROP
 	`)
@@ -145,7 +149,8 @@ func sqlRotationBatch(ctx context.Context, db *sql.DB, batch []eventRow) error {
 		"temp_bench_rotation",
 		"user_id", "goal_id", "challenge_id", "namespace",
 		"progress", "progress_mode", "inc_value", "target_value",
-		"rotation_boundary", "new_expires_at", "updated_at",
+		"rotation_boundary", "new_expires_at",
+		"allow_reselection", "reset_progress", "updated_at",
 	))
 	if err != nil {
 		return fmt.Errorf("prepare COPY: %w", err)
@@ -166,7 +171,7 @@ func sqlRotationBatch(ctx context.Context, db *sql.DB, batch []eventRow) error {
 		_, err = stmt.ExecContext(ctx,
 			row.UserID, row.GoalID, row.ChallengeID, row.Namespace,
 			row.Progress, row.ProgressMode, row.IncValue, row.TargetValue,
-			rb, nea, now,
+			rb, nea, row.AllowReselection, row.ResetProgress, now,
 		)
 		if err != nil {
 			return fmt.Errorf("COPY row: %w", err)
@@ -182,12 +187,14 @@ func sqlRotationBatch(ctx context.Context, db *sql.DB, batch []eventRow) error {
 	//
 	// Key logic:
 	//   - For relative goals where updated_at < rotation_boundary:
-	//     * Reset baseline to (new_progress - inc_value)
+	//     * Reset baseline to (new_progress - inc_value) when reset_progress=true
+	//     * Keep existing baseline when reset_progress=false
 	//     * Set progress to new_progress from event
 	//     * Update expires_at to next rotation
 	//   - For absolute goals or non-rotated relative goals:
 	//     * Simple progress update (same as production)
-	//   - Claimed status always preserved; completed resets on rotation (new period)
+	//   - Claimed goals: reset when allow_reselection=true + stale, else excluded
+	//   - Completed goals: reset when stale + reset_progress=true, keep when reset_progress=false
 	_, err = tx.ExecContext(ctx, `
 		UPDATE bench_user_goal_progress AS ugp
 		SET
@@ -200,12 +207,29 @@ func sqlRotationBatch(ctx context.Context, db *sql.DB, batch []eventRow) error {
 				WHEN temp.progress_mode = 'absolute'
 					THEN ugp.baseline_value
 
-				-- Relative + rotated: reset baseline = progress - inc_value
+				-- Claimed + reselectable + stale: reset baseline for new period
+				WHEN temp.progress_mode = 'relative'
+				     AND ugp.status = 'claimed'
+				     AND temp.allow_reselection = true
+				     AND temp.rotation_boundary IS NOT NULL
+				     AND ugp.updated_at < temp.rotation_boundary
+					THEN temp.progress - temp.inc_value
+
+				-- Relative + rotated + reset_progress=true: reset baseline
 				WHEN temp.progress_mode = 'relative'
 				     AND temp.rotation_boundary IS NOT NULL
 				     AND ugp.updated_at < temp.rotation_boundary
 				     AND ugp.status != 'claimed'
+				     AND temp.reset_progress = true
 					THEN temp.progress - temp.inc_value
+
+				-- Relative + rotated + reset_progress=false: keep existing baseline
+				WHEN temp.progress_mode = 'relative'
+				     AND temp.rotation_boundary IS NOT NULL
+				     AND ugp.updated_at < temp.rotation_boundary
+				     AND ugp.status != 'claimed'
+				     AND temp.reset_progress = false
+					THEN ugp.baseline_value
 
 				-- Relative + first event (no baseline yet): initialize
 				WHEN temp.progress_mode = 'relative'
@@ -218,15 +242,30 @@ func sqlRotationBatch(ctx context.Context, db *sql.DB, batch []eventRow) error {
 
 			-- Status: compute based on new progress vs baseline
 			status = CASE
-				-- Preserve claimed
+				-- Claimed + allow_reselection + stale: reset for new period
+				WHEN ugp.status = 'claimed'
+				     AND temp.allow_reselection = true
+				     AND temp.rotation_boundary IS NOT NULL
+				     AND ugp.updated_at < temp.rotation_boundary
+					THEN 'not_started'
+
+				-- Claimed + not reselectable (or not stale): preserve
 				WHEN ugp.status = 'claimed'
 					THEN 'claimed'
 
-				-- Preserve completed (don't un-complete)
+				-- Completed + NOT stale: preserve
 				WHEN ugp.status = 'completed'
 				     AND NOT (temp.progress_mode = 'relative'
 				              AND temp.rotation_boundary IS NOT NULL
 				              AND ugp.updated_at < temp.rotation_boundary)
+					THEN 'completed'
+
+				-- Completed + stale + reset_progress=false: preserve completed
+				WHEN ugp.status = 'completed'
+				     AND temp.progress_mode = 'relative'
+				     AND temp.rotation_boundary IS NOT NULL
+				     AND ugp.updated_at < temp.rotation_boundary
+				     AND temp.reset_progress = false
 					THEN 'completed'
 
 				-- Absolute mode: simple threshold
@@ -234,11 +273,21 @@ func sqlRotationBatch(ctx context.Context, db *sql.DB, batch []eventRow) error {
 				     AND temp.progress >= temp.target_value
 					THEN 'completed'
 
-				-- Relative + rotated: check relative progress from new baseline
+				-- Relative + rotated + reset_progress=true: check inc_value against target
 				WHEN temp.progress_mode = 'relative'
 				     AND temp.rotation_boundary IS NOT NULL
 				     AND ugp.updated_at < temp.rotation_boundary
+				     AND temp.reset_progress = true
 				     AND temp.inc_value >= temp.target_value
+					THEN 'completed'
+
+				-- Relative + rotated + reset_progress=false: check against existing baseline
+				WHEN temp.progress_mode = 'relative'
+				     AND temp.rotation_boundary IS NOT NULL
+				     AND ugp.updated_at < temp.rotation_boundary
+				     AND temp.reset_progress = false
+				     AND ugp.baseline_value IS NOT NULL
+				     AND (temp.progress - ugp.baseline_value) >= temp.target_value
 					THEN 'completed'
 
 				-- Relative + not rotated: check against existing baseline
@@ -254,7 +303,20 @@ func sqlRotationBatch(ctx context.Context, db *sql.DB, batch []eventRow) error {
 
 			-- Completed timestamp
 			completed_at = CASE
+				-- Claimed + reselectable + stale: clear for new period
+				WHEN ugp.status = 'claimed'
+				     AND temp.allow_reselection = true
+				     AND temp.rotation_boundary IS NOT NULL
+				     AND ugp.updated_at < temp.rotation_boundary
+					THEN NULL
 				WHEN ugp.status = 'claimed' THEN ugp.completed_at
+				-- Completed + stale + reset_progress=false: preserve
+				WHEN ugp.status = 'completed'
+				     AND temp.progress_mode = 'relative'
+				     AND temp.rotation_boundary IS NOT NULL
+				     AND ugp.updated_at < temp.rotation_boundary
+				     AND temp.reset_progress = false
+					THEN ugp.completed_at
 				WHEN ugp.status = 'completed'
 				     AND NOT (temp.progress_mode = 'relative'
 				              AND temp.rotation_boundary IS NOT NULL
@@ -268,6 +330,7 @@ func sqlRotationBatch(ctx context.Context, db *sql.DB, batch []eventRow) error {
 				WHEN temp.progress_mode = 'relative'
 				     AND temp.rotation_boundary IS NOT NULL
 				     AND ugp.updated_at < temp.rotation_boundary
+				     AND temp.reset_progress = true
 				     AND temp.inc_value >= temp.target_value
 					THEN NOW()
 				WHEN temp.progress_mode = 'relative'
@@ -276,12 +339,23 @@ func sqlRotationBatch(ctx context.Context, db *sql.DB, batch []eventRow) error {
 				     AND (temp.progress - ugp.baseline_value) >= temp.target_value
 				     AND ugp.completed_at IS NULL
 					THEN NOW()
-				-- Rotated but not completed: clear old completed_at
+				-- Rotated + reset_progress=true but not completed: clear old completed_at
 				WHEN temp.progress_mode = 'relative'
 				     AND temp.rotation_boundary IS NOT NULL
 				     AND ugp.updated_at < temp.rotation_boundary
+				     AND temp.reset_progress = true
 					THEN NULL
 				ELSE ugp.completed_at
+			END,
+
+			-- Claimed_at: clear for reselectable goals on rotation
+			claimed_at = CASE
+				WHEN ugp.status = 'claimed'
+				     AND temp.allow_reselection = true
+				     AND temp.rotation_boundary IS NOT NULL
+				     AND ugp.updated_at < temp.rotation_boundary
+					THEN NULL
+				ELSE ugp.claimed_at
 			END,
 
 			-- Expires: update on rotation
@@ -301,7 +375,7 @@ func sqlRotationBatch(ctx context.Context, db *sql.DB, batch []eventRow) error {
 		WHERE ugp.user_id    = temp.user_id
 		  AND ugp.goal_id    = temp.goal_id
 		  AND ugp.is_active  = true
-		  AND ugp.status    != 'claimed'
+		  AND NOT (ugp.status = 'claimed' AND temp.allow_reselection = false)
 	`)
 	if err != nil {
 		return fmt.Errorf("UPDATE with rotation: %w", err)

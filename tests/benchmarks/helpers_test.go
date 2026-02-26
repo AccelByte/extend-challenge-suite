@@ -81,14 +81,16 @@ func todayMidnightUTC() time.Time {
 
 // eventRow represents a single event in a simulated batch.
 type eventRow struct {
-	UserID       string
-	GoalID       string
-	ChallengeID  string
-	Namespace    string
-	Progress     int    // absolute stat value from event
-	IncValue     int    // increment from this event
-	TargetValue  int    // completion target
-	ProgressMode string // "relative" or "absolute"
+	UserID           string
+	GoalID           string
+	ChallengeID      string
+	Namespace        string
+	Progress         int    // absolute stat value from event
+	IncValue         int    // increment from this event
+	TargetValue      int    // completion target
+	ProgressMode     string // "relative" or "absolute"
+	ResetProgress    bool   // reset progress on rotation (default true)
+	AllowReselection bool   // allow claimed goals to reset on rotation
 }
 
 // generateEventBatch creates simulated event data for N distinct users.
@@ -123,14 +125,16 @@ func generateEventBatch(n int) []eventRow {
 				newProgress = 8
 			}
 			batch = append(batch, eventRow{
-				UserID:       userID,
-				GoalID:       eg.goalID,
-				ChallengeID:  challengeID,
-				Namespace:    namespace,
-				Progress:     newProgress,
-				IncValue:     3,
-				TargetValue:  eg.targetValue,
-				ProgressMode: eg.progressMode,
+				UserID:           userID,
+				GoalID:           eg.goalID,
+				ChallengeID:      challengeID,
+				Namespace:        namespace,
+				Progress:         newProgress,
+				IncValue:         3,
+				TargetValue:      eg.targetValue,
+				ProgressMode:     eg.progressMode,
+				ResetProgress:    true,
+				AllowReselection: false,
 			})
 		}
 	}
@@ -148,14 +152,16 @@ func generateEventBatchNRows(size int) []eventRow {
 		goalID := fmt.Sprintf("goal-daily-rel-%d", goalIdx)
 
 		batch = append(batch, eventRow{
-			UserID:       userID,
-			GoalID:       goalID,
-			ChallengeID:  challengeID,
-			Namespace:    namespace,
-			Progress:     108, // absolute stat (baseline=100, so relative=8)
-			IncValue:     3,
-			TargetValue:  10,
-			ProgressMode: "relative",
+			UserID:           userID,
+			GoalID:           goalID,
+			ChallengeID:      challengeID,
+			Namespace:        namespace,
+			Progress:         108, // absolute stat (baseline=100, so relative=8)
+			IncValue:         3,
+			TargetValue:      10,
+			ProgressMode:     "relative",
+			ResetProgress:    true,
+			AllowReselection: false,
 		})
 	}
 	return batch

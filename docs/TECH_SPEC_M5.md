@@ -223,6 +223,8 @@ CREATE TABLE user_goal_progress (
 }
 ```
 
+> **Validation rule:** `rotation.enabled=true` requires `progress_mode="relative"`. Absolute goals cannot rotate because rotation depends on baseline-relative progress tracking.
+
 ### Challenge-Level Configuration (Alternative)
 
 ```json
@@ -301,7 +303,7 @@ M5 introduces `ProgressMode` to replace the legacy `GoalType` system. This is a 
 
 **Key files affected:**
 - `extend-challenge-common/pkg/domain/models.go` — `GoalType` enum (lines 39-78), `Goal.Type` + `Goal.Daily` fields
-- `extend-challenge-event-handler/pkg/processor/event_processor.go` — 3-way switch on `GoalType` (lines 118-148)
+- `extend-challenge-event-handler/pkg/processor/event_processor.go` — 3-way switch on `GoalType` (lines 118-146)
 - `extend-challenge-event-handler/pkg/buffered/buffered_repository.go` — Dual buffers: `buffer` (absolute/daily) + `bufferIncrement` (increment)
 - Config loader, validator, cache, tests (~34 files total)
 
@@ -446,12 +448,12 @@ func InitializePlayer(ctx context.Context, userID string) (*InitializeResponse, 
 
     // Batch insert new rows
     if len(rowsToInsert) > 0 {
-        h.repo.BatchInsertProgress(ctx, rowsToInsert)
+        h.repo.BatchInsertProgress(ctx, rowsToInsert) // New method: Phase 6
     }
 
     // Batch update rotated rows
     if len(rowsToUpdate) > 0 {
-        h.repo.BatchUpdateProgress(ctx, rowsToUpdate)
+        h.repo.BatchUpdateProgress(ctx, rowsToUpdate) // New method: Phase 6
     }
 
     return &InitializeResponse{...}
@@ -514,8 +516,8 @@ func (h *ChallengesHandler) GetChallenges(ctx context.Context, userID string) (*
         var displayedProgress int
         var displayStatus string
 
-        if rotated && goal.Requirement.ProgressMode == "relative" {
-            // Rotated + relative: show reset state
+        if rotated && goal.Requirement.ProgressMode == "relative" && goal.Rotation.OnExpiry.ResetProgress {
+            // Rotated + relative + reset_progress=true: show reset state
             displayedProgress = 0
             displayStatus = "not_started"
         } else if rotated && goal.Rotation.OnExpiry.AllowReselection && row.Status == "claimed" {
@@ -803,10 +805,10 @@ func ApplyRotationReset(row *UserGoalProgress, goal *Goal, now time.Time) bool {
 |------------------------|----------------------|------------------------|
 | `not_started` | Reset to `not_started` | Keep `not_started` |
 | `in_progress` | Reset to `not_started`, baseline=nil | Keep progress |
-| `completed` | **Reset** (new period = new attempt) | **Reset** (new period) |
+| `completed` | **Reset** (new period = new attempt) | **Keep completed** |
 | `claimed` | **Reset** if `allow_reselection=true`, else **Skipped** | **Skipped** |
 
-**Key Design Decision:** Completed goals **are reset** on rotation — a new rotation period means the previous completion doesn't carry over. The goal resets for the new day/week. Claimed goals are permanent **unless** `allow_reselection=true` and a rotation boundary has passed, in which case they reset to `not_started` for a fresh attempt in the new period. See [Reselection of Claimed Goals](#reselection-of-claimed-goals) for full design.
+**Key Design Decision:** Completed goals are reset on rotation **only when `reset_progress=true`**. When `reset_progress=false`, completed goals keep their status. Claimed goals are permanent **unless** `allow_reselection=true` and a rotation boundary has passed, in which case they reset to `not_started` for a fresh attempt in the new period. See [Reselection of Claimed Goals](#reselection-of-claimed-goals) for full design.
 
 ### Why No Background Scheduler?
 
@@ -959,6 +961,7 @@ CREATE TEMP TABLE temp_event_progress (
     rotation_boundary  TIMESTAMP    NULL,        -- Last rotation boundary (computed, global only)
     new_expires_at     TIMESTAMP    NULL,        -- Next expiry timestamp (computed)
     allow_reselection  BOOLEAN      NOT NULL DEFAULT false, -- Allow claimed goals to reset on rotation
+    reset_progress     BOOLEAN      NOT NULL DEFAULT true,  -- Reset progress on rotation
     updated_at         TIMESTAMP    NOT NULL DEFAULT NOW()
 ) ON COMMIT DROP
 ```
@@ -978,9 +981,11 @@ func (b *BufferedRepository) enrichEvent(event *BufferedEvent, goal *Goal, now t
         IncValue:         event.IncValue,      // from AGS Inc field or synthetic 1
         TargetValue:      goal.Requirement.TargetValue,
         AllowReselection: goal.Rotation.OnExpiry.AllowReselection,
+        ResetProgress:    goal.Rotation.OnExpiry.ResetProgress,
     }
 
     // Compute rotation boundary for relative goals with rotation enabled (global only)
+    // Defense-in-depth: rotation.enabled=true requires progress_mode="relative" (validated at config load)
     if goal.Requirement.ProgressMode == "relative" && goal.Rotation.Enabled {
         boundary := CalculateLastRotationBoundary(goal.Rotation.Schedule, now)
         enriched.RotationBoundary = &boundary
@@ -995,7 +1000,7 @@ func (b *BufferedRepository) enrichEvent(event *BufferedEvent, goal *Goal, now t
 
 #### SQL CASE UPDATE Statement
 
-All rotation logic lives in the UPDATE's SET clause. This is designed for M5 implementation; core patterns (rotation detection, baseline init, status computation) are validated by `tests/benchmarks/bench_3_sql_rotation_test.go`. The `allow_reselection` branches are M5 additions not yet present in the benchmark code.
+All rotation logic lives in the UPDATE's SET clause. This is designed for M5 implementation; core patterns (rotation detection, baseline init, status computation, `reset_progress`, and `allow_reselection`) are validated by `tests/benchmarks/bench_3_sql_rotation_test.go`. NULL progress (login events where `progress IS NULL` and accumulation uses `ugp.progress + temp.inc_value`) is not yet covered by benchmarks — those paths will be tested in Phase 7 integration tests.
 
 ```sql
 UPDATE user_goal_progress AS ugp
@@ -1020,12 +1025,21 @@ SET
              AND ugp.updated_at < temp.rotation_boundary
             THEN COALESCE(temp.progress, ugp.progress + temp.inc_value) - temp.inc_value
 
-        -- Relative + rotated: reset baseline = progress - inc_value
+        -- Relative + rotated + reset_progress=true: reset baseline
         WHEN temp.progress_mode = 'relative'
              AND temp.rotation_boundary IS NOT NULL
              AND ugp.updated_at < temp.rotation_boundary
              AND ugp.status != 'claimed'
+             AND temp.reset_progress = true
             THEN COALESCE(temp.progress, ugp.progress + temp.inc_value) - temp.inc_value
+
+        -- Relative + rotated + reset_progress=false: keep existing baseline
+        WHEN temp.progress_mode = 'relative'
+             AND temp.rotation_boundary IS NOT NULL
+             AND ugp.updated_at < temp.rotation_boundary
+             AND ugp.status != 'claimed'
+             AND temp.reset_progress = false
+            THEN ugp.baseline_value
 
         -- Relative + first event (no baseline yet): initialize
         WHEN temp.progress_mode = 'relative'
@@ -1056,16 +1070,34 @@ SET
                       AND ugp.updated_at < temp.rotation_boundary)
             THEN 'completed'
 
+        -- Completed + stale + reset_progress=false: preserve completed
+        WHEN ugp.status = 'completed'
+             AND temp.progress_mode = 'relative'
+             AND temp.rotation_boundary IS NOT NULL
+             AND ugp.updated_at < temp.rotation_boundary
+             AND temp.reset_progress = false
+            THEN 'completed'
+
         -- Absolute mode: simple threshold
         WHEN temp.progress_mode = 'absolute'
              AND COALESCE(temp.progress, ugp.progress + temp.inc_value) >= temp.target_value
             THEN 'completed'
 
-        -- Relative + rotated: check inc_value against target (fresh period)
+        -- Relative + rotated + reset_progress=true: check inc_value against target
         WHEN temp.progress_mode = 'relative'
              AND temp.rotation_boundary IS NOT NULL
              AND ugp.updated_at < temp.rotation_boundary
+             AND temp.reset_progress = true
              AND temp.inc_value >= temp.target_value
+            THEN 'completed'
+
+        -- Relative + rotated + reset_progress=false: check against existing baseline
+        WHEN temp.progress_mode = 'relative'
+             AND temp.rotation_boundary IS NOT NULL
+             AND ugp.updated_at < temp.rotation_boundary
+             AND temp.reset_progress = false
+             AND ugp.baseline_value IS NOT NULL
+             AND (COALESCE(temp.progress, ugp.progress + temp.inc_value) - ugp.baseline_value) >= temp.target_value
             THEN 'completed'
 
         -- Relative + not rotated: check against existing baseline
@@ -1088,6 +1120,13 @@ SET
              AND ugp.updated_at < temp.rotation_boundary
             THEN NULL
         WHEN ugp.status = 'claimed' THEN ugp.completed_at
+        -- Completed + stale + reset_progress=false: preserve
+        WHEN ugp.status = 'completed'
+             AND temp.progress_mode = 'relative'
+             AND temp.rotation_boundary IS NOT NULL
+             AND ugp.updated_at < temp.rotation_boundary
+             AND temp.reset_progress = false
+            THEN ugp.completed_at
         WHEN ugp.status = 'completed'
              AND NOT (temp.progress_mode = 'relative'
                       AND temp.rotation_boundary IS NOT NULL
@@ -1100,6 +1139,7 @@ SET
         WHEN temp.progress_mode = 'relative'
              AND temp.rotation_boundary IS NOT NULL
              AND ugp.updated_at < temp.rotation_boundary
+             AND temp.reset_progress = true
              AND temp.inc_value >= temp.target_value
             THEN NOW()
         WHEN temp.progress_mode = 'relative'
@@ -1108,10 +1148,11 @@ SET
              AND (COALESCE(temp.progress, ugp.progress + temp.inc_value) - ugp.baseline_value) >= temp.target_value
              AND ugp.completed_at IS NULL
             THEN NOW()
-        -- Rotated but not completed: clear old completed_at
+        -- Rotated + reset_progress=true but not completed: clear old completed_at
         WHEN temp.progress_mode = 'relative'
              AND temp.rotation_boundary IS NOT NULL
              AND ugp.updated_at < temp.rotation_boundary
+             AND temp.reset_progress = true
             THEN NULL
         ELSE ugp.completed_at
     END,
@@ -1148,7 +1189,7 @@ WHERE ugp.user_id    = temp.user_id
   AND NOT (ugp.status = 'claimed' AND temp.allow_reselection = false)
 ```
 
-**Full benchmark implementation:** `tests/benchmarks/bench_3_sql_rotation_test.go`
+**Benchmark implementation:** `tests/benchmarks/bench_3_sql_rotation_test.go` — covers core stat event patterns with non-NULL progress, `reset_progress=true/false`, and `allow_reselection=true/false`. NULL progress (login event accumulation) paths are deferred to Phase 7 integration tests.
 
 ### Event Flow with SQL CASE Rotation
 
@@ -1168,7 +1209,7 @@ Day 2 Event: stat=163, inc=3
   3. Result: progress=163, baseline=160, displayed=3, status=in_progress
 ```
 
-**Scenario 2: Completed Goal (reset for new period)**
+**Scenario 2: Completed Goal (reset_progress=true)**
 ```
 Day 1 (before rotation):
   stat=160, baseline=150, progress=160, displayed=10, status=completed ✓
@@ -1176,14 +1217,16 @@ Day 1 (before rotation):
 Midnight: Rotation boundary passes (no DB updates!)
 
 Day 2 Event: stat=163, inc=3
-  1. SQL CASE detects: completed + stale (updated_at < rotation_boundary)
+  1. SQL CASE detects: completed + stale (updated_at < rotation_boundary) + reset_progress=true
      → completed is NOT preserved for stale rows — new period = new attempt
      → baseline = 163 - 3 = 160 (reset)
      → status = in_progress (inc=3 < target=10)
      → completed_at = NULL (cleared)
   2. Result: goal resets for new day. User must re-complete.
 
-Note: Only CLAIMED goals are permanent (excluded by WHERE clause).
+Note: When reset_progress=false, completed goals keep their status across rotation
+boundaries — the completed_at and baseline are preserved, only expires_at updates.
+Claimed goals are permanent unless allow_reselection=true.
 ```
 
 **Scenario 3: Claimed Goal with allow_reselection=true**
@@ -1260,6 +1303,7 @@ Replace the dual-buffer architecture with a single unified buffer and COPY flush
 
 - [ ] Add `rotation` config block to Goal struct
 - [ ] Add rotation config validation (schedule values, on_expiry fields)
+- [ ] Validate `rotation.enabled=true` requires `progress_mode="relative"` (reject absolute goals with rotation)
 - [ ] Update config cache to include rotation metadata
 - [ ] Update `challenges.json` with rotation config for daily/weekly goals
 
@@ -1464,7 +1508,7 @@ Instead of updating rows during rotation:
 |--------|----------------------|------------------------|
 | `not_started` | Reset | Keep |
 | `in_progress` | Reset to `not_started` | Keep progress |
-| `completed` | **Reset** (new period) | **Reset** (new period) |
+| `completed` | **Reset** (new period) | **Keep completed** |
 | `claimed` | **Reset** if `allow_reselection=true`, else **Skipped** | **Skipped** |
 
 **Performance Comparison:**

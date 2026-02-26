@@ -20,14 +20,16 @@ func TestSQLRotation_RotatedRowGetsNewBaseline(t *testing.T) {
 
 	// Act: send event with progress=108, inc=3
 	batch := []eventRow{{
-		UserID:       userID,
-		GoalID:       goalID,
-		ChallengeID:  challengeID,
-		Namespace:    namespace,
-		Progress:     108,
-		IncValue:     3,
-		TargetValue:  10,
-		ProgressMode: "relative",
+		UserID:           userID,
+		GoalID:           goalID,
+		ChallengeID:      challengeID,
+		Namespace:        namespace,
+		Progress:         108,
+		IncValue:         3,
+		TargetValue:      10,
+		ProgressMode:     "relative",
+		ResetProgress:    true,
+		AllowReselection: false,
 	}}
 
 	if err := sqlRotationBatch(ctx, testDB, batch); err != nil {
@@ -66,17 +68,19 @@ func TestSQLRotation_CompletedGoalRotated(t *testing.T) {
 		todayMidnightUTC().Add(-2*time.Hour), &completedAt)
 
 	// Completed+stale goal receives an event. The SQL CASE should:
-	// 1. Reset baseline (completed is no longer excluded from rotation)
+	// 1. Reset baseline (completed is no longer excluded from rotation when reset_progress=true)
 	// 2. Recompute status from the new baseline (not preserve old "completed")
 	batch := []eventRow{{
-		UserID:       userID,
-		GoalID:       goalID,
-		ChallengeID:  challengeID,
-		Namespace:    namespace,
-		Progress:     115,
-		IncValue:     5,
-		TargetValue:  10,
-		ProgressMode: "relative",
+		UserID:           userID,
+		GoalID:           goalID,
+		ChallengeID:      challengeID,
+		Namespace:        namespace,
+		Progress:         115,
+		IncValue:         5,
+		TargetValue:      10,
+		ProgressMode:     "relative",
+		ResetProgress:    true,
+		AllowReselection: false,
 	}}
 
 	if err := sqlRotationBatch(ctx, testDB, batch); err != nil {
@@ -123,14 +127,16 @@ func TestSQLRotation_ClaimedGoalUntouched(t *testing.T) {
 		todayMidnightUTC().Add(-7*24*time.Hour)) // last week
 
 	batch := []eventRow{{
-		UserID:       userID,
-		GoalID:       goalID,
-		ChallengeID:  challengeID,
-		Namespace:    namespace,
-		Progress:     120,
-		IncValue:     5,
-		TargetValue:  10,
-		ProgressMode: "relative",
+		UserID:           userID,
+		GoalID:           goalID,
+		ChallengeID:      challengeID,
+		Namespace:        namespace,
+		Progress:         120,
+		IncValue:         5,
+		TargetValue:      10,
+		ProgressMode:     "relative",
+		ResetProgress:    true,
+		AllowReselection: false,
 	}}
 
 	if err := sqlRotationBatch(ctx, testDB, batch); err != nil {
@@ -160,14 +166,16 @@ func TestSQLRotation_AbsoluteBaselineStaysNull(t *testing.T) {
 		time.Now().UTC().Add(-1*time.Hour))
 
 	batch := []eventRow{{
-		UserID:       userID,
-		GoalID:       goalID,
-		ChallengeID:  challengeID,
-		Namespace:    namespace,
-		Progress:     8,
-		IncValue:     3,
-		TargetValue:  20,
-		ProgressMode: "absolute",
+		UserID:           userID,
+		GoalID:           goalID,
+		ChallengeID:      challengeID,
+		Namespace:        namespace,
+		Progress:         8,
+		IncValue:         3,
+		TargetValue:      20,
+		ProgressMode:     "absolute",
+		ResetProgress:    true,
+		AllowReselection: false,
 	}}
 
 	if err := sqlRotationBatch(ctx, testDB, batch); err != nil {
@@ -200,14 +208,16 @@ func TestSQLRotation_FirstEventInitializesBaseline(t *testing.T) {
 		time.Now().UTC().Add(-5*time.Minute)) // very recent
 
 	batch := []eventRow{{
-		UserID:       userID,
-		GoalID:       goalID,
-		ChallengeID:  challengeID,
-		Namespace:    namespace,
-		Progress:     153,
-		IncValue:     3,
-		TargetValue:  10,
-		ProgressMode: "relative",
+		UserID:           userID,
+		GoalID:           goalID,
+		ChallengeID:      challengeID,
+		Namespace:        namespace,
+		Progress:         153,
+		IncValue:         3,
+		TargetValue:      10,
+		ProgressMode:     "relative",
+		ResetProgress:    true,
+		AllowReselection: false,
 	}}
 
 	if err := sqlRotationBatch(ctx, testDB, batch); err != nil {
@@ -252,14 +262,16 @@ func TestSQLRotation_CrossApproachComparison(t *testing.T) {
 
 	// Run SQL-side rotation (Bench 3 approach)
 	sqlBatch := []eventRow{{
-		UserID:       userID1,
-		GoalID:       goalID,
-		ChallengeID:  challengeID,
-		Namespace:    namespace,
-		Progress:     108,
-		IncValue:     3,
-		TargetValue:  10,
-		ProgressMode: "relative",
+		UserID:           userID1,
+		GoalID:           goalID,
+		ChallengeID:      challengeID,
+		Namespace:        namespace,
+		Progress:         108,
+		IncValue:         3,
+		TargetValue:      10,
+		ProgressMode:     "relative",
+		ResetProgress:    true,
+		AllowReselection: false,
 	}}
 	if err := sqlRotationBatch(ctx, testDB, sqlBatch); err != nil {
 		t.Fatalf("sqlRotationBatch: %v", err)
@@ -303,6 +315,228 @@ func TestSQLRotation_CrossApproachComparison(t *testing.T) {
 	cleanupVerifyRow(t, ctx, userID1)
 }
 
+// TestSQLRotation_CompletedGoalPreservedWhenResetProgressFalse verifies that
+// completed+stale goals keep their status when reset_progress=false.
+func TestSQLRotation_CompletedGoalPreservedWhenResetProgressFalse(t *testing.T) {
+	ctx := context.Background()
+
+	userID := "verify-user-010"
+	goalID := "goal-completed-0"
+	completedAt := todayMidnightUTC().Add(-25 * time.Hour)
+	setupVerifyRowFull(t, ctx, userID, goalID, 110, "completed", intPtr(100),
+		todayMidnightUTC().Add(-2*time.Hour), &completedAt)
+
+	// Completed+stale but reset_progress=false: status should stay completed
+	batch := []eventRow{{
+		UserID:           userID,
+		GoalID:           goalID,
+		ChallengeID:      challengeID,
+		Namespace:        namespace,
+		Progress:         115,
+		IncValue:         5,
+		TargetValue:      10,
+		ProgressMode:     "relative",
+		ResetProgress:    false,
+		AllowReselection: false,
+	}}
+
+	if err := sqlRotationBatch(ctx, testDB, batch); err != nil {
+		t.Fatalf("sqlRotationBatch: %v", err)
+	}
+
+	row := readVerifyRow(t, ctx, userID, goalID)
+
+	// Progress updated from event
+	if row.Progress != 115 {
+		t.Errorf("progress = %d, want 115", row.Progress)
+	}
+
+	// Baseline preserved (not reset) because reset_progress=false
+	if !row.BaselineValue.Valid {
+		t.Fatal("expected baseline_value to be preserved, got NULL")
+	}
+	if row.BaselineValue.Int64 != 100 {
+		t.Errorf("baseline_value = %d, want 100 (preserved)", row.BaselineValue.Int64)
+	}
+
+	// Status stays completed
+	if row.Status != "completed" {
+		t.Errorf("status = %q, want completed (preserved with reset_progress=false)", row.Status)
+	}
+
+	// completed_at preserved
+	if !row.CompletedAt.Valid {
+		t.Error("completed_at should be preserved, got NULL")
+	}
+
+	cleanupVerifyRow(t, ctx, userID)
+}
+
+// TestSQLRotation_ClaimedGoalResetWithAllowReselection verifies that
+// claimed+stale goals reset when allow_reselection=true.
+func TestSQLRotation_ClaimedGoalResetWithAllowReselection(t *testing.T) {
+	ctx := context.Background()
+
+	userID := "verify-user-011"
+	goalID := "goal-claimed-0"
+	setupVerifyRow(t, ctx, userID, goalID, 110, "claimed", intPtr(100),
+		todayMidnightUTC().Add(-7*24*time.Hour)) // last week
+
+	// Claimed+stale+allow_reselection=true: should reset
+	batch := []eventRow{{
+		UserID:           userID,
+		GoalID:           goalID,
+		ChallengeID:      challengeID,
+		Namespace:        namespace,
+		Progress:         120,
+		IncValue:         5,
+		TargetValue:      10,
+		ProgressMode:     "relative",
+		ResetProgress:    true,
+		AllowReselection: true,
+	}}
+
+	if err := sqlRotationBatch(ctx, testDB, batch); err != nil {
+		t.Fatalf("sqlRotationBatch: %v", err)
+	}
+
+	row := readVerifyRow(t, ctx, userID, goalID)
+
+	// Status reset to not_started
+	if row.Status != "not_started" {
+		t.Errorf("status = %q, want not_started (reset with allow_reselection)", row.Status)
+	}
+
+	// Baseline reset to 120-5=115 (new period)
+	if !row.BaselineValue.Valid {
+		t.Fatal("expected baseline_value to be set, got NULL")
+	}
+	if row.BaselineValue.Int64 != 115 {
+		t.Errorf("baseline_value = %d, want 115", row.BaselineValue.Int64)
+	}
+
+	// claimed_at cleared
+	if row.ClaimedAt.Valid {
+		t.Errorf("claimed_at = %v, want NULL (cleared on reselection)", row.ClaimedAt.Time)
+	}
+
+	// completed_at cleared
+	if row.CompletedAt.Valid {
+		t.Errorf("completed_at = %v, want NULL (cleared on reselection)", row.CompletedAt.Time)
+	}
+
+	cleanupVerifyRow(t, ctx, userID)
+}
+
+// TestSQLRotation_InProgressPreservedWhenResetProgressFalse verifies that
+// in_progress+stale goals keep their baseline when reset_progress=false.
+func TestSQLRotation_InProgressPreservedWhenResetProgressFalse(t *testing.T) {
+	ctx := context.Background()
+
+	userID := "verify-user-012"
+	goalID := "goal-daily-rel-0"
+	setupVerifyRow(t, ctx, userID, goalID, 105, "in_progress", intPtr(100),
+		todayMidnightUTC().Add(-2*time.Hour)) // yesterday 10PM
+
+	// In-progress+stale but reset_progress=false: baseline should be preserved
+	batch := []eventRow{{
+		UserID:           userID,
+		GoalID:           goalID,
+		ChallengeID:      challengeID,
+		Namespace:        namespace,
+		Progress:         108,
+		IncValue:         3,
+		TargetValue:      10,
+		ProgressMode:     "relative",
+		ResetProgress:    false,
+		AllowReselection: false,
+	}}
+
+	if err := sqlRotationBatch(ctx, testDB, batch); err != nil {
+		t.Fatalf("sqlRotationBatch: %v", err)
+	}
+
+	row := readVerifyRow(t, ctx, userID, goalID)
+
+	// Progress updated
+	if row.Progress != 108 {
+		t.Errorf("progress = %d, want 108", row.Progress)
+	}
+
+	// Baseline preserved (not reset) because reset_progress=false
+	if !row.BaselineValue.Valid {
+		t.Fatal("expected baseline_value to be preserved, got NULL")
+	}
+	if row.BaselineValue.Int64 != 100 {
+		t.Errorf("baseline_value = %d, want 100 (preserved with reset_progress=false)", row.BaselineValue.Int64)
+	}
+
+	// Relative progress = 108 - 100 = 8, target = 10, so in_progress
+	if row.Status != "in_progress" {
+		t.Errorf("status = %q, want in_progress", row.Status)
+	}
+
+	cleanupVerifyRow(t, ctx, userID)
+}
+
+// TestSQLRotation_CompletedGoalRotatedExplicitResetProgress verifies
+// completed+stale+reset_progress=true explicitly (same as CompletedGoalRotated
+// but with explicit ResetProgress field).
+func TestSQLRotation_CompletedGoalRotatedExplicitResetProgress(t *testing.T) {
+	ctx := context.Background()
+
+	userID := "verify-user-013"
+	goalID := "goal-completed-0"
+	completedAt := todayMidnightUTC().Add(-25 * time.Hour)
+	setupVerifyRowFull(t, ctx, userID, goalID, 110, "completed", intPtr(100),
+		todayMidnightUTC().Add(-2*time.Hour), &completedAt)
+
+	// Completed+stale+reset_progress=true: should reset (same as existing test)
+	batch := []eventRow{{
+		UserID:           userID,
+		GoalID:           goalID,
+		ChallengeID:      challengeID,
+		Namespace:        namespace,
+		Progress:         115,
+		IncValue:         5,
+		TargetValue:      10,
+		ProgressMode:     "relative",
+		ResetProgress:    true,
+		AllowReselection: false,
+	}}
+
+	if err := sqlRotationBatch(ctx, testDB, batch); err != nil {
+		t.Fatalf("sqlRotationBatch: %v", err)
+	}
+
+	row := readVerifyRow(t, ctx, userID, goalID)
+
+	// Progress updated
+	if row.Progress != 115 {
+		t.Errorf("progress = %d, want 115", row.Progress)
+	}
+
+	// Baseline resets: 115 - 5 = 110
+	if !row.BaselineValue.Valid {
+		t.Fatal("expected baseline_value to be set, got NULL")
+	}
+	if row.BaselineValue.Int64 != 110 {
+		t.Errorf("baseline_value = %d, want 110", row.BaselineValue.Int64)
+	}
+
+	// Status resets: inc=5 < target=10 → in_progress
+	if row.Status != "in_progress" {
+		t.Errorf("status = %q, want in_progress", row.Status)
+	}
+
+	// completed_at cleared on rotation
+	if row.CompletedAt.Valid {
+		t.Errorf("completed_at = %v, want NULL (cleared on rotation)", row.CompletedAt.Time)
+	}
+
+	cleanupVerifyRow(t, ctx, userID)
+}
+
 // --- Helper functions for verify tests ---
 
 type verifyRow struct {
@@ -311,6 +545,7 @@ type verifyRow struct {
 	BaselineValue sql.NullInt64
 	UpdatedAt     time.Time
 	CompletedAt   sql.NullTime
+	ClaimedAt     sql.NullTime
 	ExpiresAt     sql.NullTime
 }
 
@@ -357,12 +592,12 @@ func readVerifyRow(t *testing.T, ctx context.Context, userID, goalID string) ver
 	t.Helper()
 	var row verifyRow
 	err := testDB.QueryRowContext(ctx, `
-		SELECT progress, status, baseline_value, updated_at, completed_at, expires_at
+		SELECT progress, status, baseline_value, updated_at, completed_at, claimed_at, expires_at
 		FROM bench_user_goal_progress
 		WHERE user_id = $1 AND goal_id = $2
 	`, userID, goalID).Scan(
 		&row.Progress, &row.Status, &row.BaselineValue,
-		&row.UpdatedAt, &row.CompletedAt, &row.ExpiresAt)
+		&row.UpdatedAt, &row.CompletedAt, &row.ClaimedAt, &row.ExpiresAt)
 	if err != nil {
 		t.Fatalf("read row %s/%s: %v", userID, goalID, err)
 	}
