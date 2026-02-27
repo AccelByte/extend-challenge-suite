@@ -1331,15 +1331,15 @@ Port the SQL CASE rotation logic from benchmarks to production code.
 
 ### Phase 6: API Handler Updates (2 days)
 
-- [ ] Add lazy rotation detection to POST /initialize (returning players)
-- [ ] Add lazy rotation detection to GET /challenges
-- [ ] Add lazy rotation detection to GET /challenges/{id}
-- [ ] Add lazy rotation detection to POST /claim (reject if goal rotated since completion; allow if `allow_reselection=true`)
-- [ ] Implement `calculateDisplayedProgress()` utility (returns `progress - baseline` for relative, raw `progress` for absolute)
-- [ ] Update response with `expires_at` and `expires_in_seconds`
-- [ ] Add rotation status endpoint (`GET /v1/challenges/{id}/rotation`)
-- [ ] Batch update for rotated rows in Initialize endpoint (`BatchInsertProgress` for new, `BatchUpdateProgress` for rotated)
-- [ ] Update optimized HTTP handler for GET /challenges (feature parity with gRPC handler)
+- [x] Add lazy rotation detection to POST /initialize (returning players)
+- [x] Add lazy rotation detection to GET /challenges
+- [x] Add lazy rotation detection to GET /challenges/{id}
+- [x] Add lazy rotation detection to POST /claim (reject if goal rotated since completion; allow if `allow_reselection=true`)
+- [x] Implement `calculateDisplayedProgress()` utility (returns `progress - baseline` for relative, raw `progress` for absolute)
+- [x] Update response with `expires_at` and `expires_in_seconds`
+- [x] Add rotation status endpoint (`GET /v1/challenges/{id}/rotation`)
+- [x] Batch update for rotated rows in Initialize endpoint (`BatchInsertProgress` for new, `BatchUpdateProgress` for rotated)
+- [x] Update optimized HTTP handler for GET /challenges (feature parity with gRPC handler)
 
 ### Phase 7: Testing + Benchmark Updates (1.5 days)
 

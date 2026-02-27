@@ -8,7 +8,7 @@
 
 ## Current Phase: Milestone 5 (M5) - Time-Based Rotation
 
-**Status**: 🟡 M5 Phases 0.5–7 Complete, Phase 8 (Documentation) In Progress
+**Status**: 🟡 M5 Phases 0.5–8 Complete, Phase 9 (Loadtest) Pending
 
 **M4 Completion Summary:**
 - ✅ Batch manual goal selection (`POST /v1/challenges/{id}/goals/batch-select`)
@@ -25,7 +25,7 @@
 - ✅ Phase 5: SQL CASE rotation logic in batch UPDATE
 - ✅ Phase 6: API handler updates (expiresAt, expiresInSeconds, rotation endpoint)
 - ✅ Phase 7: Testing checklist complete
-- 🟡 Phase 8: Documentation updates (in progress)
+- ✅ Phase 8: Documentation updates
 - ⬜ Phase 9: Loadtest fixture and script updates
 - ⬜ Phase 10: Performance report
 
