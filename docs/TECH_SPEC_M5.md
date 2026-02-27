@@ -1343,14 +1343,14 @@ Port the SQL CASE rotation logic from benchmarks to production code.
 
 ### Phase 7: Testing + Benchmark Updates (1.5 days)
 
-- [ ] Integration tests for rotation boundary calculations in full event + API flow
-- [ ] Unit tests for lazy rotation detection
-- [ ] Unit tests for baseline initialization
-- [ ] Integration tests for full rotation flow
-- [ ] E2E tests: daily challenge completion across rotation
+- [x] Integration tests for rotation boundary calculations in full event + API flow
+- [x] Unit tests for lazy rotation detection
+- [x] Unit tests for baseline initialization
+- [x] Integration tests for full rotation flow
+- [x] E2E tests: daily challenge completion across rotation
 - [x] Add `allow_reselection` branches to benchmark SQL in `bench_3_sql_rotation_test.go`
 - [x] Add verify tests for `allow_reselection` scenarios
-- [ ] Run full linter and coverage check: target ≥ 80%
+- [x] Run full linter and coverage check: target ≥ 80%
 
 ### Phase 8: Documentation Updates (1.5 days)
 
