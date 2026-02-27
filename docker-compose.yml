@@ -55,6 +55,8 @@ services:
   challenge-service:
     build:
       context: ./extend-challenge-service
+      additional_contexts:
+        common: ./extend-challenge-common
       args:
         TARGETOS: ${TARGETOS:-linux}
         TARGETARCH: ${TARGETARCH:-amd64}
@@ -69,6 +71,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - ./extend-challenge-service/config:/app/config:ro
     env_file: .env
     environment:
       - MOCK_AGS=true
@@ -90,6 +94,8 @@ services:
   challenge-event-handler:
     build:
       context: ./extend-challenge-event-handler
+      additional_contexts:
+        common: ./extend-challenge-common
       args:
         TARGETOS: ${TARGETOS:-linux}
         TARGETARCH: ${TARGETARCH:-amd64}
@@ -103,6 +109,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - ./extend-challenge-event-handler/config:/app/config:ro
     env_file: .env
     environment:
       - BUFFER_FLUSH_INTERVAL=1s

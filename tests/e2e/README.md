@@ -4,6 +4,7 @@ CLI-based E2E tests for the Challenge Service using the demo app.
 
 ## Prerequisites
 
+- Docker images up-to-date with source code: `make dev-rebuild` (run after any Go code changes)
 - Docker Compose services running: `make dev-up`
 - Demo app built: `cd extend-challenge-demo-app && go build -o bin/challenge-demo ./cmd/challenge-demo/`
 - `jq` installed: `apt install jq` or `brew install jq`
@@ -134,6 +135,31 @@ NAMESPACE=mygame \
 | `test-mixed-goals.sh` | All 3 goal types working together | Absolute, increment, daily goals |
 | `test-buffering-performance.sh` | Event throughput and batch UPSERT performance | 1000 events, buffering, performance |
 
+### M3 Feature Tests
+
+| Test Script | Description | Coverage |
+|-------------|-------------|----------|
+| `test-m3-initialization.sh` | Player initialization and default goal assignment | M3 initialization flow |
+| `test-inactive-goal-filtering.sh` | Inactive goals filtered from API responses | M3 goal activation control |
+
+### M4 Feature Tests
+
+| Test Script | Description | Coverage |
+|-------------|-------------|----------|
+| `test-m4-batch-selection.sh` | Batch goal selection mechanics | M4 batch selection |
+| `test-m4-random-selection.sh` | Random goal selection from pool | M4 random selection |
+
+### M5 Feature Tests (Time-Based Rotation)
+
+| Test Script | Description | Coverage |
+|-------------|-------------|----------|
+| `test-m5-rotation-basic.sh` | Relative progress mode with baseline calculation | Baseline init, relative progress, completion |
+| `test-m5-rotation-reset.sh` | Daily rotation with progress reset | Display-only rotation, SQL CASE reset, baseline reset |
+| `test-m5-rotation-no-reset.sh` | Weekly rotation preserving progress | `resetProgress=false`, progress survives rotation |
+| `test-m5-rotation-claimed.sh` | Claimed goal behavior across rotation | `allowReselection` true vs false |
+| `test-m5-rotation-status.sh` | Rotation status endpoint | `GET /v1/challenges/{id}/rotation` |
+| `test-m5-rotation-expiry-fields.sh` | Expiry fields on rotation goals | `expiresAt`, `expiresInSeconds` presence |
+
 ### Error Scenario Tests
 
 | Test Script | Description | Coverage |
@@ -226,20 +252,44 @@ brew install jq
 - Check event handler: `docker compose logs challenge-event-handler`
 - Increase wait times in test scripts if needed
 
+### Tests fail with unexpected progress values or missing goals
+This usually means Docker images are stale (built before recent code/config changes):
+```bash
+# Rebuild images with latest code
+make dev-rebuild
+
+# Or if config-only change, just restart (config is volume-mounted)
+docker compose restart
+```
+
 ## Directory Structure
 
 ```
 tests/e2e/
 ├── README.md                          # This file
+├── QUICK_START.md                     # Quick start guide
 ├── .env.example                       # Example configuration
 ├── helpers.sh                         # Test helper functions
-├── run-all-tests.sh                   # Test runner
+├── run-all-tests.sh                   # Test runner (all 19 tests)
 ├── test-login-flow.sh                 # Login flow test
 ├── test-stat-flow.sh                  # Stat update test
 ├── test-daily-goal.sh                 # Daily goal test
 ├── test-prerequisites.sh              # Prerequisites test
 ├── test-mixed-goals.sh                # Mixed goals test
-└── test-buffering-performance.sh      # Performance test
+├── test-buffering-performance.sh      # Performance test
+├── test-m3-initialization.sh          # M3: Player initialization
+├── test-inactive-goal-filtering.sh    # M3: Inactive goal filtering
+├── test-m4-batch-selection.sh         # M4: Batch selection
+├── test-m4-random-selection.sh        # M4: Random selection
+├── test-m5-rotation-basic.sh          # M5: Relative progress & baseline
+├── test-m5-rotation-reset.sh          # M5: Daily rotation with reset
+├── test-m5-rotation-no-reset.sh       # M5: Weekly rotation, no reset
+├── test-m5-rotation-claimed.sh        # M5: Claimed goal across rotation
+├── test-m5-rotation-status.sh         # M5: Rotation status endpoint
+├── test-m5-rotation-expiry-fields.sh  # M5: Expiry field validation
+├── test-error-scenarios.sh            # Error scenarios
+├── test-reward-failures.sh            # Reward failure handling
+└── test-multi-user.sh                 # Multi-user concurrency
 ```
 
 ## CI/CD Integration

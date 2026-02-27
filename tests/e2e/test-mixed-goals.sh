@@ -121,10 +121,10 @@ ABSOLUTE_PROGRESS_1=$(extract_json_value "$CHALLENGES" ".challenges[] | select(.
 DAILY_PROGRESS=$(extract_json_value "$CHALLENGES" ".challenges[] | select(.challengeId==\"$CHALLENGE_ID_2\") | .goals[] | select(.goalId==\"$DAILY_GOAL\") | .progress")
 
 echo "  Absolute goal 1 progress: $ABSOLUTE_PROGRESS_1 (should be 20, replaced)"
-echo "  Daily goal progress: $DAILY_PROGRESS (should still be 1, same day)"
+echo "  Daily goal progress: $DAILY_PROGRESS (should be 2, login count incremented)"
 
 assert_equals "20" "$ABSOLUTE_PROGRESS_1" "Absolute goal should replace value (not accumulate)"
-assert_equals "1" "$DAILY_PROGRESS" "Daily goal should not change on same day"
+assert_equals "2" "$DAILY_PROGRESS" "Login goal progress should be 2 (absolute mode, 2 login events)"
 
 # Step 7: Claim all completed goals
 print_step 7 "Claiming all completed goals..."

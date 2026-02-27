@@ -25,6 +25,40 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Pre-flight: Warn if Docker images are older than source code
+check_image_freshness() {
+    local service_name="$1"
+    local image_name="$2"
+    local source_dir="$3"
+
+    # Get image creation timestamp (seconds since epoch)
+    local image_ts
+    image_ts=$(docker inspect "$image_name" --format '{{.Created}}' 2>/dev/null)
+    if [ -z "$image_ts" ]; then
+        return  # Image doesn't exist, docker-compose will build it
+    fi
+
+    # Convert image timestamp to epoch seconds
+    local image_epoch
+    image_epoch=$(date -d "$image_ts" +%s 2>/dev/null)
+    if [ -z "$image_epoch" ]; then
+        return  # Can't parse timestamp
+    fi
+
+    # Check if any .go file in source dir is newer than the image
+    local newer_file
+    newer_file=$(find "$source_dir" -name '*.go' -newermt "$image_ts" -print -quit 2>/dev/null)
+
+    if [ -n "$newer_file" ]; then
+        echo -e "${YELLOW}WARNING: $service_name Docker image is older than source code${NC}"
+        echo -e "  Run: ${BLUE}make dev-rebuild${NC} to update"
+        echo ""
+    fi
+}
+
+check_image_freshness "challenge-service" "challenge-service:0.0.1" "$SCRIPT_DIR/../../extend-challenge-service"
+check_image_freshness "challenge-event-handler" "challenge-event-handler:0.0.1" "$SCRIPT_DIR/../../extend-challenge-event-handler"
+
 # Test tracking
 TOTAL_TESTS=0
 PASSED_TESTS=0

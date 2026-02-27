@@ -163,6 +163,25 @@ AB_BASE_URL, AB_NAMESPACE                          # AGS connection
 - Configure rewards (ITEM or WALLET)
 - See `docs/TECH_SPEC_CONFIGURATION.md` for full schema
 
+### After Code Changes
+
+**IMPORTANT:** `make dev-up` reuses existing Docker images. After changing Go code in
+any service or `extend-challenge-common`, you MUST rebuild:
+
+```bash
+make dev-rebuild    # Rebuild with cache (fast, use for iterative dev)
+make dev-restart    # Full rebuild without cache (use if cached build seems wrong)
+```
+
+Config-only changes (`challenges.json`) do NOT require rebuild — config is volume-mounted.
+
+### After Migration Changes
+
+If you modify an existing migration file (e.g., add a column to `001_*.up.sql`),
+existing databases won't pick up the change. Either:
+1. Create a new migration file (`002_*.up.sql`) with `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
+2. Or drop and recreate: `make dev-clean && make dev-up`
+
 ## Important Implementation Notes
 
 ### Key Design Principles

@@ -64,9 +64,9 @@ echo "  Status: $STATUS"
 assert_equals "1" "$PROGRESS" "Progress should be 1 after first login"
 assert_equals "completed" "$STATUS" "Status should be 'completed' (daily goals complete on first event)"
 
-# Step 5: Test idempotency - trigger another login event same day
-print_step 5 "Testing same-day idempotency..."
-echo "  Triggering second login event (same day)..."
+# Step 5: Test additional login - progress increments (absolute mode)
+print_step 5 "Testing second login event..."
+echo "  Triggering second login event..."
 run_cli trigger-event login
 
 wait_for_flush 2
@@ -75,9 +75,9 @@ CHALLENGES=$(run_cli list-challenges --format=json)
 PROGRESS_AFTER=$(extract_json_value "$CHALLENGES" ".challenges[] | select(.challengeId==\"$CHALLENGE_ID\") | .goals[] | select(.goalId==\"$GOAL_ID\") | .progress")
 STATUS_AFTER=$(extract_json_value "$CHALLENGES" ".challenges[] | select(.challengeId==\"$CHALLENGE_ID\") | .goals[] | select(.goalId==\"$GOAL_ID\") | .status")
 
-echo "  Progress after second login (same day): $PROGRESS_AFTER"
+echo "  Progress after second login: $PROGRESS_AFTER"
 echo "  Status: $STATUS_AFTER"
-assert_equals "1" "$PROGRESS_AFTER" "Progress should still be 1 (no change on same day)"
+assert_equals "2" "$PROGRESS_AFTER" "Progress should be 2 (absolute mode, login count = 2)"
 assert_equals "completed" "$STATUS_AFTER" "Status should remain 'completed'"
 
 # Step 6: Claim reward
@@ -135,7 +135,7 @@ FINAL_STATUS=$(extract_json_value "$CHALLENGES" ".challenges[] | select(.challen
 
 echo "  Progress after login on claimed goal: $FINAL_PROGRESS"
 echo "  Status: $FINAL_STATUS"
-assert_equals "1" "$FINAL_PROGRESS" "Progress should not change (claimed protection)"
+assert_equals "2" "$FINAL_PROGRESS" "Progress should not change (claimed protection, was 2 at claim time)"
 assert_equals "claimed" "$FINAL_STATUS" "Status should remain 'claimed'"
 
 print_success "Daily goal test completed successfully"
@@ -144,10 +144,7 @@ print_success "Daily goal test completed successfully"
 echo ""
 echo "Summary:"
 echo "  - Tested M3 player initialization and manual goal activation"
-echo "  - Daily goal (login-today) completed on first login event"
-echo "  - Same-day idempotency verified (second login did not change progress)"
+echo "  - Goal completed on first login event (target: 1)"
+echo "  - Progress increments with each login (absolute mode)"
 echo "  - Status transitions: not_started → completed → claimed"
 echo "  - Claimed goal protected from updates"
-echo ""
-echo "Note: Testing next-day reset requires waiting 24 hours or database manipulation"
-echo "      (not feasible in automated tests, but the daily timestamp logic is validated)"

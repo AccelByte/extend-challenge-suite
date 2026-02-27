@@ -21,6 +21,12 @@ set -a && source .env && set +a && ./run-all-tests.sh
 
 **Setup:** None required!
 
+**First time or after code changes:**
+```bash
+make dev-rebuild   # Rebuild Docker images with latest code
+make test-e2e      # Run tests
+```
+
 **Run:**
 ```bash
 make test-e2e
@@ -177,6 +183,12 @@ brew install jq
 - Verify IAM_URL is accessible: `curl https://demo.accelbyte.io/iam/healthz`
 - Ensure client has proper permissions
 - Check namespace is correct
+
+### Tests show wrong progress values or missing challenges
+Docker images are out of date. Rebuild:
+```bash
+make dev-rebuild
+```
 
 ---
 

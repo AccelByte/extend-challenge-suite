@@ -10,9 +10,10 @@ help:
 	@echo "  make build-demo-app  - Build the demo app for E2E testing"
 	@echo ""
 	@echo "Development:"
-	@echo "  make dev-up          - Start all services (postgres, redis, services)"
+	@echo "  make dev-up          - Start services (uses existing images)"
+	@echo "  make dev-rebuild     - Rebuild images and restart (after code changes)"
+	@echo "  make dev-restart     - Full rebuild from scratch (--no-cache)"
 	@echo "  make dev-down        - Stop all services"
-	@echo "  make dev-restart     - Restart all services"
 	@echo "  make dev-logs        - View logs from all services"
 	@echo "  make dev-clean       - Clean up volumes and containers"
 	@echo ""
@@ -90,6 +91,13 @@ dev-up: setup
 	@echo "  - Metrics:             localhost:8080, localhost:8081"
 	@echo ""
 	@echo "Run 'make dev-logs' to view logs"
+
+.PHONY: dev-rebuild
+dev-rebuild:
+	@echo "Rebuilding and restarting services..."
+	docker-compose up -d --build
+	@echo ""
+	@echo "✓ Services rebuilt and restarted"
 
 .PHONY: dev-down
 dev-down:

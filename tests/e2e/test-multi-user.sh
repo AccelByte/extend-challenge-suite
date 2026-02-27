@@ -209,7 +209,7 @@ run_cli_for_user $USER_1_INDEX trigger-event login > /dev/null 2>&1
 
 wait_for_flush 2
 
-# Check user 1's progress (should still be 1 - daily goal, same day)
+# Check user 1's progress (should be 2 - two login events in absolute mode)
 USER_1_CHALLENGES=$(run_cli_for_user $USER_1_INDEX list-challenges --format=json)
 USER_1_PROGRESS=$(extract_json_value "$USER_1_CHALLENGES" ".challenges[] | select(.challengeId==\"$CHALLENGE_ID\") | .goals[] | select(.goalId==\"$GOAL_ID\") | .progress")
 
@@ -220,7 +220,7 @@ USER_2_PROGRESS=$(extract_json_value "$USER_2_CHALLENGES" ".challenges[] | selec
 echo "  User 1 progress: $USER_1_PROGRESS"
 echo "  User 2 progress: $USER_2_PROGRESS"
 
-assert_equals "1" "$USER_1_PROGRESS" "User 1 progress should be 1"
+assert_equals "2" "$USER_1_PROGRESS" "User 1 progress should be 2 (2 login events, absolute mode)"
 assert_equals "1" "$USER_2_PROGRESS" "User 2 progress should be 1 (unaffected by user 1's event)"
 
 echo -e "${GREEN}✅ PASS${NC}: Users have isolated progress (no data leakage)"

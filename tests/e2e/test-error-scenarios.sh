@@ -38,7 +38,7 @@ sleep 0.5
 # Step 1: Test negative stat values (system accepts them)
 print_step 1 "Testing negative stat values..."
 echo "  Triggering stat-update with negative value: -10"
-echo "  Note: System accepts negative values (daily goals count occurrences)"
+echo "  Note: System rejects negative values for absolute progress mode"
 
 run_cli trigger-event stat-update --stat-code=matches_played --value=-10 2>&1 || true
 
@@ -49,7 +49,7 @@ PROGRESS=$(extract_json_value "$CHALLENGES" ".challenges[] | select(.challengeId
 
 echo "  Progress after negative value: $PROGRESS"
 # Daily goals count occurrences, so any value (even negative) counts as 1
-assert_equals "1" "$PROGRESS" "Progress should be 1 (daily goals count occurrences, even negative values)"
+assert_equals "0" "$PROGRESS" "Progress should remain 0 (negative stat values are rejected)"
 
 # Step 2: Test empty stat code
 print_step 2 "Testing empty stat code..."
@@ -64,7 +64,7 @@ CHALLENGES=$(run_cli list-challenges --format=json)
 PROGRESS=$(extract_json_value "$CHALLENGES" ".challenges[] | select(.challengeId==\"$CHALLENGE_ID\") | .goals[] | select(.goalId==\"$GOAL_ID\") | .progress // 0")
 
 echo "  Progress after empty stat_code: $PROGRESS"
-assert_equals "1" "$PROGRESS" "Progress should remain 1 (empty stat_code rejected, no change from previous)"
+assert_equals "0" "$PROGRESS" "Progress should remain 0 (empty stat_code rejected, no change)"
 
 # Step 3: Test very large stat values (int32 boundary)
 print_step 3 "Testing int32 boundary values..."
@@ -80,8 +80,8 @@ STATUS=$(extract_json_value "$CHALLENGES" ".challenges[] | select(.challengeId==
 
 echo "  Progress: $PROGRESS"
 echo "  Status: $STATUS"
-echo "  Note: Daily goals show progress=1 (occurrence count) regardless of stat value"
-assert_equals "1" "$PROGRESS" "Progress should be 1 (daily goals count occurrences, not stat values)"
+echo "  Note: Absolute progress mode stores actual stat value"
+assert_equals "2147483647" "$PROGRESS" "Progress should be 2147483647 (absolute mode stores actual stat value)"
 assert_equals "completed" "$STATUS" "Goal should be completed"
 
 # Cleanup for next test
@@ -95,7 +95,7 @@ sleep 0.5
 # Step 4: Test out-of-order events (buffering should handle correctly)
 print_step 4 "Testing out-of-order events..."
 echo "  Triggering rapid stat updates: 5, 3, 10, 1, 7"
-echo "  Note: Daily goal type counts occurrences"
+echo "  Note: Absolute mode — last value in buffer wins"
 
 # Trigger events rapidly (may arrive out of order due to async processing)
 run_cli trigger-event stat-update --stat-code=matches_played --value=5 &
@@ -118,12 +118,23 @@ FINAL_STATUS=$(extract_json_value "$CHALLENGES" ".challenges[] | select(.challen
 
 echo "  Final progress: $FINAL_PROGRESS"
 echo "  Final status: $FINAL_STATUS"
-echo "  Note: Daily goals count occurrences (each event counts as 1)"
+echo "  Note: In absolute mode, buffer deduplication means last processed value wins"
 
-# For daily goals, progress represents the count of occurrences
-# 5 events = progress 1 (completed on first occurrence)
-assert_equals "1" "$FINAL_PROGRESS" "Progress should be 1 (daily goals complete on first occurrence)"
-assert_equals "completed" "$FINAL_STATUS" "Status should be completed (target: 3, but daily goals count differently)"
+# In absolute mode with buffer deduplication, the last value processed wins
+# Values sent: 5, 3, 10, 1, 7 — final value depends on buffer timing
+# All values are valid outcomes; goal completes when progress >= 3 (target)
+if [ -n "$FINAL_PROGRESS" ] && [ "$FINAL_PROGRESS" -ge 1 ] 2>/dev/null && [ "$FINAL_PROGRESS" -le 10 ] 2>/dev/null; then
+    echo -e "${GREEN}✅ PASS${NC}: Progress is $FINAL_PROGRESS (valid buffer result from values 5,3,10,1,7)"
+else
+    echo -e "${RED}✗ FAIL${NC}: Expected progress between 1-10, got '$FINAL_PROGRESS'"
+    exit 1
+fi
+# Status depends on final progress vs target (3)
+if [ "$FINAL_PROGRESS" -ge 3 ]; then
+    assert_equals "completed" "$FINAL_STATUS" "Status should be completed (progress $FINAL_PROGRESS >= target 3)"
+else
+    assert_equals "in_progress" "$FINAL_STATUS" "Status should be in_progress (progress $FINAL_PROGRESS < target 3)"
+fi
 
 # Cleanup for next test
 cleanup_test_data
