@@ -280,7 +280,7 @@ tests/e2e/
 ├── QUICK_START.md                     # Quick start guide
 ├── .env.example                       # Example configuration
 ├── helpers.sh                         # Test helper functions
-├── run-all-tests.sh                   # Test runner (all 29 tests)
+├── run-all-tests.sh                   # Test runner (all 34 tests)
 ├── test-login-flow.sh                 # Login flow test
 ├── test-stat-flow.sh                  # Stat update test
 ├── test-daily-goal.sh                 # Daily goal test

@@ -14,8 +14,11 @@ help:
 	@echo "  make dev-rebuild     - Rebuild images and restart (after code changes)"
 	@echo "  make dev-restart     - Full rebuild from scratch (--no-cache)"
 	@echo "  make dev-down        - Stop all services"
+	@echo "  make dev-ps          - Show running services"
 	@echo "  make dev-logs        - View logs from all services"
 	@echo "  make dev-clean       - Clean up volumes and containers"
+	@echo "  make dev-up-loadtest      - Start services with loadtest config"
+	@echo "  make dev-rebuild-loadtest - Rebuild with loadtest config"
 	@echo ""
 	@echo "Testing:"
 	@echo "  make test-e2e        - Run all E2E tests (auto-loads tests/e2e/.env)"
@@ -190,11 +193,31 @@ dev-restart:
 dev-logs:
 	docker-compose logs -f
 
+.PHONY: dev-ps
+dev-ps:
+	docker-compose ps
+
 .PHONY: dev-clean
 dev-clean:
 	@echo "Cleaning up Docker volumes and containers..."
 	docker-compose down -v
 	@echo "✓ Cleanup complete"
+
+.PHONY: dev-up-loadtest
+dev-up-loadtest: setup
+	@echo "Starting services with loadtest config..."
+	docker-compose -f docker-compose.yml -f docker-compose.loadtest.yml up -d
+	@echo ""
+	@echo "✓ Services started with loadtest config ($(shell jq '[.challenges[].goals[]] | length' tests/loadtest/fixtures/challenges.json 2>/dev/null || echo '?') goals)"
+	@echo "  Config: tests/loadtest/fixtures/challenges.json (volume-mounted)"
+	@echo "  To switch back to E2E config: make dev-up"
+
+.PHONY: dev-rebuild-loadtest
+dev-rebuild-loadtest:
+	@echo "Rebuilding services with loadtest config..."
+	docker-compose -f docker-compose.yml -f docker-compose.loadtest.yml up -d --build
+	@echo ""
+	@echo "✓ Services rebuilt with loadtest config"
 
 # E2E Tests
 # All test targets automatically load tests/e2e/.env if it exists
