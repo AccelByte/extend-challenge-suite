@@ -415,12 +415,12 @@ extend-challenge/
   - Interface-driven design choices
 
 - **[docs/MILESTONES.md](./docs/MILESTONES.md)** - Product roadmap
-  - M1: Foundation (simple fixed challenges) ← **Current**
-  - M2: Multiple challenges & tagging
-  - M3: Time-based challenges & rotation
-  - M4: Randomized assignment
-  - M5: Prerequisites & visibility control
-  - M6: Advanced assignment & claim rules
+  - M1: Foundation (simple fixed challenges) ✅
+  - M2: Performance Profiling & Load Testing ✅
+  - M3: Per-User Goal Activation Control ✅
+  - M4: Batch & Random Goal Selection ✅
+  - M5: Time-Based Rotation ← **Current**
+  - Backlog: Multiple challenges, prerequisites, advanced rules
 
 - **[docs/TECH_SPEC_DATABASE_PARTITIONING.md](./docs/TECH_SPEC_DATABASE_PARTITIONING.md)** - Scaling strategy
   - Partition-readiness analysis (score: 9/10)
