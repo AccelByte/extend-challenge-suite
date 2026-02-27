@@ -1,44 +1,52 @@
-# M2 Load Testing Guide
+# Load Testing Guide
 
-This directory contains all resources for Milestone 2 (M2) performance profiling and load testing.
+This directory contains all resources for performance profiling and load testing (M2-M5).
 
 **Objective:** Determine actual system limits under resource constraints and document bottlenecks.
 
 **Related Documents:**
-- [TECH_SPEC_M2.md](../docs/TECH_SPEC_M2.md) - Complete technical specification
-- [PERFORMANCE_BASELINE.md](../docs/PERFORMANCE_BASELINE.md) - Results template
-- [CAPACITY_PLANNING.md](../docs/CAPACITY_PLANNING.md) - Scaling guide template
-- [PERFORMANCE_TUNING.md](../docs/PERFORMANCE_TUNING.md) - Optimization guide template
+- [TECH_SPEC_M2.md](../../docs/TECH_SPEC_M2.md) - Complete technical specification
+- [PERFORMANCE_BASELINE.md](../../docs/PERFORMANCE_BASELINE.md) - Results template
+- [CAPACITY_PLANNING.md](../../docs/CAPACITY_PLANNING.md) - Scaling guide template
+- [PERFORMANCE_TUNING.md](../../docs/PERFORMANCE_TUNING.md) - Optimization guide template
 
 ---
 
-## Directory Structure
+## Quick Start
 
+Get started in under 2 minutes:
+
+> **Before you begin:** You need a `.env` file in the project root. If you don't have one, copy the example and review it:
+> ```bash
+> cp .env.example .env
+> ```
+> See [Environment Configuration](#environment-configuration) below for details.
+
+```bash
+# 1. Start services with loadtest config (from project root)
+make dev-up-loadtest
+
+# 2. Create results directories (from tests/loadtest/)
+cd tests/loadtest
+mkdir -p results/{scenario1,scenario2,scenario3}
+
+# 3. Run a quick smoke test (~5 min, combined API + events)
+K6_WEB_DASHBOARD=true k6 run k6/scenario3_smoke.js
+
+# 4. Or run API-only load test (~10 min, no gRPC needed)
+TARGET_RPS=50 k6 run k6/scenario1_api_load.js
+
+# 5. When done, switch back to E2E config
+cd ../..
+make dev-up
 ```
-test/
-├── k6/                          # k6 load test scripts
-│   ├── scenario1_api_load.js   # API load testing (isolated)
-│   ├── scenario2_event_load.js # Event processing load (isolated)
-│   └── scenario3_combined.js   # Combined API + Event load
-├── fixtures/                    # Test data
-│   ├── users.json              # 10,000 test users (generated)
-│   ├── tokens.json             # JWT tokens (generated)
-│   └── challenges.json         # 10 challenges, 50 goals each
-├── scripts/                     # Helper scripts
-│   ├── generate_users.sh       # Generate users.json
-│   ├── generate_tokens.sh      # Generate tokens.json
-│   ├── generate_challenges.sh  # Generate challenges.json
-│   ├── monitor_db.sh           # Real-time database monitoring
-│   ├── analyze_db_performance.sql  # Post-test query analysis
-│   └── run_all_scenarios.sh    # Automated test runner
-├── results/                     # Test results (gitignored)
-│   ├── scenario1/
-│   ├── scenario2/
-│   ├── scenario3/
-│   ├── scenario4/
-│   └── scenario5/
-└── README.md                    # This file
-```
+
+**What to look for:**
+- `http_req_duration` p95 < 2000ms
+- `http_req_failed` rate < 1%
+- Web dashboard at http://localhost:5665 (if `K6_WEB_DASHBOARD=true`)
+
+For automated testing with profiling and analysis, see [`scripts/README.md`](scripts/README.md).
 
 ---
 
@@ -112,82 +120,43 @@ test/
 
 ---
 
-## Environment Configuration for M2 Load Testing
+## Environment Configuration
 
-**IMPORTANT:** Before running load tests, configure `.env` for mock mode to avoid external AGS dependencies.
-
-### Required Configuration
-
-Edit `.env` in the project root and set these variables:
+**Before running load tests**, ensure your `.env` (in the project root) has these two critical settings for mock mode:
 
 ```bash
-# ============================================================================
-# M2 Load Testing Configuration (Mock Mode)
-# ============================================================================
-
-# Backend Service: Use mock reward client (no real AGS calls)
+# Use mock reward client (no real AGS calls)
 REWARD_CLIENT_MODE=mock
 
-# Backend Service: Disable JWT validation (accept mock tokens)
+# Disable JWT validation (accept mock tokens)
 PLUGIN_GRPC_SERVER_AUTH_ENABLED=false
-
-# AGS Namespace (still required for config validation)
-AB_NAMESPACE=test
-
-# Database Configuration (leave as default for local docker-compose)
-DB_HOST=postgres
-DB_PORT=5432
-DB_NAME=challenge_db
-DB_USER=postgres
-DB_PASSWORD=postgres
-
-# Redis Configuration (leave as default)
-REDIS_HOST=redis
-REDIS_PORT=6379
 ```
 
-### Why Mock Mode?
-
-**M2 load testing goals:**
-- Test service performance limits (CPU, memory, DB)
-- Identify bottlenecks in event processing and API handling
-- Measure buffer flush performance and batch UPSERT efficiency
-
-**Using real AGS during load testing would:**
-- Introduce external latency (network calls to AGS)
-- Risk hitting AGS rate limits
-- Make results harder to interpret (AGS performance vs our service performance)
-- Require managing thousands of real test users
-
-**Mock mode ensures:**
-- ✅ Isolated testing (no external dependencies)
-- ✅ Reproducible results (no network variability)
-- ✅ Faster test execution (no AGS API calls)
-- ✅ Focus on service limits (CPU, memory, DB) not external factors
-
-### Verification
-
-After updating `.env`, verify configuration:
+All other variables (DB, Redis, paths) have sensible defaults in `.env.example` that work with docker-compose out of the box. If you don't have a `.env` file yet:
 
 ```bash
-# Check .env file
-cat .env | grep -E "REWARD_CLIENT_MODE|PLUGIN_GRPC_SERVER_AUTH_ENABLED|AB_NAMESPACE"
+cp .env.example .env
+```
 
-# Expected output:
+**Why mock mode?** Load testing should measure *your service* performance (CPU, memory, DB), not external AGS API latency. Mock mode ensures isolated, reproducible results with no external dependencies.
+
+**Verify configuration:**
+```bash
+grep -E "REWARD_CLIENT_MODE|PLUGIN_GRPC_SERVER_AUTH_ENABLED" .env
+# Expected:
 # REWARD_CLIENT_MODE=mock
 # PLUGIN_GRPC_SERVER_AUTH_ENABLED=false
-# AB_NAMESPACE=test
 ```
 
 ---
 
 ## Setup Instructions
 
-### 1. Start Services
+### 1. Start Services with Loadtest Config
 
 ```bash
-# From project root
-make dev-up
+# From project root — uses docker-compose.loadtest.yml overlay
+make dev-up-loadtest
 
 # Verify services are healthy
 make dev-ps
@@ -200,6 +169,13 @@ make dev-ps
 # challenge-event-handler Up
 ```
 
+This volume-mounts `tests/loadtest/fixtures/challenges.json` into the services. To switch back to the E2E config, run `make dev-up`.
+
+After code changes, rebuild with:
+```bash
+make dev-rebuild-loadtest
+```
+
 ### 2. Enable PostgreSQL Extensions
 
 ```bash
@@ -210,47 +186,63 @@ docker exec -it challenge-postgres psql -U postgres -d challenge_db -c "CREATE E
 docker exec -it challenge-postgres psql -U postgres -d challenge_db -c "\dx"
 ```
 
-### 3. Generate Test Fixtures
+### 3. Generate Test Fixtures (Optional)
+
+> **Fixtures are pre-generated and committed to the repo.** You only need to regenerate if you want different data (more users, different challenges, etc.).
+
+All commands below assume CWD is `tests/loadtest/`:
 
 ```bash
-# Generate 10,000 test users
-./test/scripts/generate_users.sh
+cd tests/loadtest
 
-# Generate 10 challenges with 50 goals each (500 total goals)
-./test/scripts/generate_challenges.sh
+# Generate 10,000 test users
+./scripts/generate_users.sh
+
+# Generate 12 challenges with ~600 goals (loadtest fixture)
+./scripts/generate_challenges_loadtest.sh
 
 # Generate JWT tokens (mock mode for local testing)
-MOCK_MODE=true ./test/scripts/generate_tokens.sh
+MOCK_MODE=true ./scripts/generate_tokens.sh
 
 # For real AGS tokens (requires credentials):
 # export AGS_CLIENT_ID=your-client-id
 # export AGS_CLIENT_SECRET=your-client-secret
 # export AGS_BASE_URL=https://demo.accelbyte.io
 # export AGS_NAMESPACE=your-namespace
-# ./test/scripts/generate_tokens.sh
+# ./scripts/generate_tokens.sh
 ```
 
 **Verify fixtures:**
 ```bash
-ls -lh test/fixtures/
+ls -lh fixtures/
 # Expected:
 # users.json       (~500 KB, 10,000 users)
 # tokens.json      (~500 KB, 10,000 tokens)
-# challenges.json  (~100 KB, 10 challenges, 500 goals)
+# challenges.json  (~100 KB, 12 challenges, ~600 goals)
 ```
 
 ### 4. Load Challenge Configuration
 
-```bash
-# Copy challenges to service config
-cp test/fixtures/challenges.json extend-challenge-service/config/challenges.json
-cp test/fixtures/challenges.json extend-challenge-event-handler/config/challenges.json
+The loadtest fixture (`fixtures/challenges.json`) contains 12 challenges
+with ~600 goals: 500 absolute + 50 daily rotation + 50 weekly rotation (~17% rotation).
 
-# Restart services to load new config
-make dev-restart
+The fixture is volume-mounted via `make dev-up-loadtest` — no file copying needed.
+
+To regenerate the fixture:
+```bash
+cd tests/loadtest/scripts && ./generate_challenges_loadtest.sh
 ```
 
-### 5. Verify System Health
+### 5. Create Results Directories
+
+k6 does not auto-create parent directories for output files. Create them before running tests:
+
+```bash
+cd tests/loadtest
+mkdir -p results/{scenario1,scenario2,scenario3}
+```
+
+### 6. Verify System Health
 
 ```bash
 # Test API endpoint
@@ -264,15 +256,77 @@ docker logs challenge-event-handler | tail -20
 
 ---
 
+## Directory Structure
+
+```
+tests/loadtest/
+├── README.md                          # This file
+├── .gitignore
+├── k6/                                # k6 load test scripts
+│   ├── scenario1_api_load.js          # API load (isolated, HTTP only)
+│   ├── scenario2_event_load.js        # Event processing (isolated, gRPC)
+│   ├── scenario3_combined.js          # Combined API + Events (30 min)
+│   ├── scenario3_init_only.js         # Init endpoint investigation
+│   ├── scenario3_smoke.js             # Quick smoke test (~5 min)
+│   ├── scenario4_m4_realistic_sessions.js  # M4 realistic sessions
+│   └── README_SCENARIO4.md            # Scenario 4 documentation
+├── fixtures/                          # Test data (pre-generated)
+│   ├── challenges.json                # 12 challenges, ~600 goals
+│   ├── users.json                     # 10,000 test users
+│   └── tokens.json                    # Mock JWT tokens
+├── scripts/                           # Helper scripts
+│   ├── README.md                      # Script documentation
+│   ├── generate_challenges_loadtest.sh
+│   ├── generate_users.sh
+│   ├── generate_tokens.sh
+│   ├── run_all_scenarios.sh
+│   ├── run_and_analyze_loadtest.sh    # Automated orchestrator
+│   ├── monitor_db.sh
+│   ├── monitor_loadtest.sh
+│   ├── monitor_init_test.sh
+│   ├── profile_at_15min.sh
+│   └── analyze_db_performance.sql
+├── sql/                               # SQL analysis queries
+│   ├── investigate_init_performance.sql
+│   └── quick_benchmark.sql
+└── results/                           # Test output (gitignored)
+```
+
+---
+
+## Scenario Guide
+
+| Scenario | Script | Purpose | Duration (per-run) | Requires gRPC | Best For |
+|----------|--------|---------|----------|---------------|----------|
+| 1 | `scenario1_api_load.js` | API only | 10m | No | Quick API validation |
+| 2 | `scenario2_event_load.js` | Events only | 10m | Yes | Event handler testing |
+| 3 | `scenario3_combined.js` | API + Events | 30m | Yes | Full system stress |
+| 3 (smoke) | `scenario3_smoke.js` | Quick combined | ~5m | Yes | CI / pre-merge check |
+| 3 (init) | `scenario3_init_only.js` | Init investigation | 10m | No | Debug init performance |
+| 4 | `scenario4_m4_realistic_sessions.js` | M4 realistic | 30m | Yes | M4/M5 feature validation |
+
+**Tips:**
+- Start with **scenario1** or **scenario3_smoke** for a quick sanity check.
+- Use **scenario3_combined** for pre-release stress testing.
+- Use **scenario4** for M4+ feature validation with realistic user sessions.
+- The "Duration" column shows how long a single k6 run takes. The detailed sections below describe multi-level testing strategies that run the same script multiple times.
+
+---
+
 ## Running Tests
 
-### Quick Start: Single Scenario
+All commands below assume CWD is `tests/loadtest/`.
+
+### Single Scenario
 
 ```bash
-# Enable web dashboard and run test
+# Ensure results directories exist
+mkdir -p results/{scenario1,scenario2,scenario3}
+
+# Enable web dashboard and run test (~10 min)
 K6_WEB_DASHBOARD=true TARGET_RPS=100 k6 run \
-  --out json=test/results/scenario1/test1.json \
-  test/k6/scenario1_api_load.js
+  --out json=results/scenario1/test1.json \
+  k6/scenario1_api_load.js
 
 # Access dashboard at: http://localhost:5665
 # Shows real-time metrics: request rate, latency (p50/p95/p99), errors, active VUs
@@ -282,17 +336,29 @@ K6_WEB_DASHBOARD=true TARGET_RPS=100 k6 run \
 
 ```bash
 # Run all scenarios at multiple load levels
-./test/scripts/run_all_scenarios.sh
+./scripts/run_all_scenarios.sh
 
 # This will:
 # 1. Test API load at 50, 100, 200, 500, 1000, 2000, 5000 RPS
 # 2. Test event load at 100, 500, 1000, 2000, 5000, 10000 EPS
-# 3. Test combined load (matrix of API × Event)
+# 3. Test combined load (matrix of API x Event)
 # 4. Run database performance analysis
 # 5. Validate E2E latency
 #
 # Estimated runtime: 6-12 hours (stops at failure)
 ```
+
+### Automated Orchestrator with Profiling
+
+For fully automated testing with profiling, monitoring, and analysis reports:
+
+```bash
+cd scripts
+./run_and_analyze_loadtest.sh                         # Defaults
+./run_and_analyze_loadtest.sh scenario4 150 500 120   # Custom
+```
+
+See [`scripts/README.md`](scripts/README.md) for full documentation of `run_and_analyze_loadtest.sh`.
 
 ---
 
@@ -302,13 +368,13 @@ K6_WEB_DASHBOARD=true TARGET_RPS=100 k6 run \
 
 **Objective:** Find maximum sustainable API request rate
 
-**Duration:** 30 minutes per load level
+**Duration:** 10 min per run. Test multiple load levels to find the breaking point.
 
 **Run single level:**
 ```bash
 TARGET_RPS=500 k6 run \
-  --out json=test/results/scenario1/level_500rps.json \
-  test/k6/scenario1_api_load.js
+  --out json=results/scenario1/level_500rps.json \
+  k6/scenario1_api_load.js
 ```
 
 **Load levels to test:**
@@ -330,13 +396,13 @@ TARGET_RPS=500 k6 run \
 
 **Objective:** Find maximum sustainable event processing rate
 
-**Duration:** 30 minutes per load level
+**Duration:** 10 min per run. Test multiple load levels to find the breaking point.
 
 **Run single level:**
 ```bash
 TARGET_EPS=1000 k6 run \
-  --out json=test/results/scenario2/level_1000eps.json \
-  test/k6/scenario2_event_load.js
+  --out json=results/scenario2/level_1000eps.json \
+  k6/scenario2_event_load.js
 ```
 
 **Load levels to test:**
@@ -357,13 +423,13 @@ TARGET_EPS=1000 k6 run \
 
 **Objective:** Test API + Event load simultaneously (most critical)
 
-**Duration:** 30 minutes per combination
+**Duration:** 30 min per combination
 
 **Run single combination:**
 ```bash
 TARGET_RPS=200 TARGET_EPS=1000 k6 run \
-  --out json=test/results/scenario3/level_200rps_1000eps.json \
-  test/k6/scenario3_combined.js
+  --out json=results/scenario3/level_200rps_1000eps.json \
+  k6/scenario3_combined.js
 ```
 
 **While test is running, collect profiling data:**
@@ -393,7 +459,7 @@ watch -n 2 'docker stats --no-stream challenge-service challenge-event-handler c
 
 ---
 
-### Scenario 4: Database Performance Deep Dive
+### Advanced: Database Performance Deep Dive
 
 **Objective:** Analyze database bottlenecks under load
 
@@ -402,24 +468,24 @@ watch -n 2 'docker stats --no-stream challenge-service challenge-event-handler c
 **Run with monitoring:**
 ```bash
 # Terminal 1: Start database monitoring
-./test/scripts/monitor_db.sh test/results/scenario4/db_monitor.log
+./scripts/monitor_db.sh results/db_monitor.log
 
 # Terminal 2: Run combined load test
 TARGET_RPS=500 TARGET_EPS=2000 k6 run \
-  --out json=test/results/scenario4/results.json \
-  test/k6/scenario3_combined.js
+  --out json=results/scenario3/db_deepdive.json \
+  k6/scenario3_combined.js
 
 # After test completes, stop monitoring (Ctrl+C in Terminal 1)
 
 # Analyze database performance
-docker exec -it challenge-postgres psql -U postgres -d challenge_db \
-  -f /host/test/scripts/analyze_db_performance.sql \
-  > test/results/scenario4/query_analysis.txt
+docker exec -i challenge-postgres psql -U postgres -d challenge_db \
+  < scripts/analyze_db_performance.sql \
+  > results/scenario3/query_analysis.txt
 ```
 
 ---
 
-### Scenario 5: E2E Latency Validation
+### Advanced: E2E Latency Validation
 
 **Objective:** Measure end-to-end latency from event to API visibility
 
@@ -429,11 +495,11 @@ docker exec -it challenge-postgres psql -U postgres -d challenge_db \
 ```bash
 TARGET_EPS=1000 k6 run \
   --duration=5m \
-  --out json=test/results/scenario5/results.json \
-  test/k6/scenario2_event_load.js
+  --out json=results/scenario2/e2e_latency.json \
+  k6/scenario2_event_load.js
 
 # Check buffer flush timing
-docker logs challenge-event-handler 2>&1 | grep "buffer flush" > test/results/scenario5/flush_timing.log
+docker logs challenge-event-handler 2>&1 | grep "buffer flush" > results/scenario2/flush_timing.log
 ```
 
 ---
@@ -445,7 +511,7 @@ docker logs challenge-event-handler 2>&1 | grep "buffer flush" > test/results/sc
 **Enable web dashboard with environment variable:**
 ```bash
 # Set K6_WEB_DASHBOARD=true before running any k6 test
-K6_WEB_DASHBOARD=true TARGET_RPS=500 k6 run test/k6/scenario1_api_load.js
+K6_WEB_DASHBOARD=true TARGET_RPS=500 k6 run k6/scenario1_api_load.js
 ```
 
 **Dashboard features:**
@@ -494,7 +560,7 @@ docker logs -f challenge-event-handler | grep -E "ERROR|WARN|buffer"
 
 ### k6 Results
 
-**JSON output files are in `test/results/scenarioN/`**
+**JSON output files are in `results/`**
 
 ```bash
 # View summary from k6 JSON output
@@ -502,7 +568,7 @@ jq '.metrics | {
   http_req_duration_p95: .http_req_duration.values."p(95)",
   http_req_failed_rate: .http_req_failed.values.rate,
   http_reqs_rate: .http_reqs.values.rate
-}' test/results/scenario1/level_500rps.json
+}' results/scenario1/level_500rps.json
 
 # Expected output:
 # {
@@ -517,23 +583,23 @@ jq '.metrics | {
 **CPU profile:**
 ```bash
 # View top CPU consumers
-go tool pprof -top test/results/scenario3/cpu_500rps_2000eps.txt
+go tool pprof -top results/scenario3/cpu_500rps_2000eps.txt
 
 # Generate flame graph (interactive)
-go tool pprof -http=:8080 test/results/scenario3/cpu_500rps_2000eps.txt
+go tool pprof -http=:8080 results/scenario3/cpu_500rps_2000eps.txt
 ```
 
 **Memory profile:**
 ```bash
 # View top memory allocations
-go tool pprof -top test/results/scenario3/heap_500rps_2000eps.txt
+go tool pprof -top results/scenario3/heap_500rps_2000eps.txt
 ```
 
 ### Database Performance
 
 **View query analysis:**
 ```bash
-cat test/results/scenario4/query_analysis.txt
+cat results/scenario3/query_analysis.txt
 
 # Look for:
 # - Slowest queries (mean_exec_time)
@@ -560,9 +626,9 @@ cat test/results/scenario4/query_analysis.txt
 
 2. Fixtures not generated
    ```bash
-   ls -lh test/fixtures/
+   ls -lh fixtures/
    # Should see users.json, tokens.json, challenges.json
-   # If missing, run generate scripts
+   # If missing, run generate scripts (see Setup step 3)
    ```
 
 3. Port conflicts
@@ -623,10 +689,10 @@ docker exec challenge-event-handler netstat -tuln | grep 6565
 1. **Ensure K6_WEB_DASHBOARD environment variable is set:**
    ```bash
    # Correct way to enable dashboard
-   K6_WEB_DASHBOARD=true k6 run test/k6/scenario1_api_load.js
+   K6_WEB_DASHBOARD=true k6 run k6/scenario1_api_load.js
 
    # NOT via command-line flag (this doesn't exist):
-   # k6 run --web-dashboard test/k6/scenario1_api_load.js  ❌
+   # k6 run --web-dashboard k6/scenario1_api_load.js
    ```
 
 2. **Check if port 5665 is available:**
@@ -637,7 +703,7 @@ docker exec challenge-event-handler netstat -tuln | grep 6565
 
 3. **Change dashboard port (if needed):**
    ```bash
-   K6_WEB_DASHBOARD=true K6_WEB_DASHBOARD_PORT=5666 k6 run test/k6/scenario1_api_load.js
+   K6_WEB_DASHBOARD=true K6_WEB_DASHBOARD_PORT=5666 k6 run k6/scenario1_api_load.js
    # Dashboard will be available at http://localhost:5666
    ```
 
@@ -727,7 +793,7 @@ Fill in the documentation templates with your findings:
 
 ## References
 
-- [M2 Technical Spec](../docs/TECH_SPEC_M2.md) - Full specification
+- [TECH_SPEC_M2.md](../../docs/TECH_SPEC_M2.md) - Full specification
 - [k6 Documentation](https://k6.io/docs/)
 - [k6 Web Dashboard](https://grafana.com/docs/k6/latest/results-output/web-dashboard/)
 - [PostgreSQL Performance](https://wiki.postgresql.org/wiki/Performance_Optimization)
@@ -737,35 +803,47 @@ Fill in the documentation templates with your findings:
 
 ## Quick Command Reference
 
+All commands assume CWD is `tests/loadtest/` unless noted otherwise.
+
 ```bash
-# Generate fixtures
-./test/scripts/generate_users.sh
-./test/scripts/generate_challenges.sh
-MOCK_MODE=true ./test/scripts/generate_tokens.sh
+# --- From project root ---
+make dev-up-loadtest           # Start services with loadtest config
+make dev-rebuild-loadtest      # Rebuild services with loadtest config
+make dev-up                    # Switch back to E2E config
+
+# --- From tests/loadtest/ ---
+
+# Create results directories (one-time)
+mkdir -p results/{scenario1,scenario2,scenario3}
+
+# Generate fixtures (only needed if you want different data)
+./scripts/generate_users.sh
+./scripts/generate_challenges_loadtest.sh
+MOCK_MODE=true ./scripts/generate_tokens.sh
 
 # Run single scenario
-K6_WEB_DASHBOARD=true TARGET_RPS=500 k6 run --out json=test/results/scenario1/test.json test/k6/scenario1_api_load.js
-K6_WEB_DASHBOARD=true TARGET_EPS=1000 k6 run --out json=test/results/scenario2/test.json test/k6/scenario2_event_load.js
-K6_WEB_DASHBOARD=true TARGET_RPS=200 TARGET_EPS=1000 k6 run --out json=test/results/scenario3/test.json test/k6/scenario3_combined.js
+K6_WEB_DASHBOARD=true TARGET_RPS=500 k6 run --out json=results/scenario1/test.json k6/scenario1_api_load.js   # ~10 min
+K6_WEB_DASHBOARD=true TARGET_EPS=1000 k6 run --out json=results/scenario2/test.json k6/scenario2_event_load.js # ~10 min
+K6_WEB_DASHBOARD=true TARGET_RPS=200 TARGET_EPS=1000 k6 run --out json=results/scenario3/test.json k6/scenario3_combined.js  # ~30 min
+K6_WEB_DASHBOARD=true k6 run k6/scenario3_smoke.js  # ~5 min
 
 # Run all scenarios
-./test/scripts/run_all_scenarios.sh
+./scripts/run_all_scenarios.sh
+
+# Automated orchestrator (with profiling + analysis report)
+cd scripts && ./run_and_analyze_loadtest.sh
 
 # Monitor database
-./test/scripts/monitor_db.sh test/results/db_monitor.log
+./scripts/monitor_db.sh results/db_monitor.log
 
 # Analyze database
-docker exec -it challenge-postgres psql -U postgres -d challenge_db -f /host/test/scripts/analyze_db_performance.sql
+docker exec -i challenge-postgres psql -U postgres -d challenge_db < scripts/analyze_db_performance.sql
 
 # Reset database
 docker exec challenge-postgres psql -U postgres -d challenge_db -c "TRUNCATE TABLE user_goal_progress;"
 docker exec challenge-postgres psql -U postgres -d challenge_db -c "SELECT pg_stat_statements_reset();"
 
 # View results
-jq '.metrics.http_req_duration.values."p(95)"' test/results/scenario1/level_500rps.json
-go tool pprof -top test/results/scenario3/cpu_500rps_2000eps.txt
+jq '.metrics.http_req_duration.values."p(95)"' results/scenario1/level_500rps.json
+go tool pprof -top results/scenario3/cpu_500rps_2000eps.txt
 ```
-
----
-
-**Happy Load Testing!** 🚀
