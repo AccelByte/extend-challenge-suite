@@ -59,6 +59,7 @@ make test-e2e
    EMAIL=your.email@example.com
    PASSWORD=your-password
    CLIENT_ID=your-oauth-client-id
+   CLIENT_SECRET=your-oauth-client-secret
    NAMESPACE=your-namespace
    IAM_URL=https://demo.accelbyte.io/iam
    ```
@@ -72,7 +73,7 @@ cd tests/e2e && set -a && source .env && set +a && ./run-all-tests.sh
 
 **What you need:**
 - Real AccelByte user account (email + password)
-- OAuth2 client ID that supports password grant
+- OAuth2 client ID and secret that supports password grant
 - Namespace where you have access
 
 ---
@@ -120,7 +121,7 @@ cd tests/e2e && set -a && source .env && set +a && ./run-all-tests.sh
 | `EMAIL` | Password mode | `user@example.com` |
 | `PASSWORD` | Password mode | `your-password` |
 | `CLIENT_ID` | Password/Client mode | `abc123def456` |
-| `CLIENT_SECRET` | Client mode | `secret123` |
+| `CLIENT_SECRET` | Password/Client mode | `secret123` |
 | `NAMESPACE` | All modes | `accelbyte` or `your-game` |
 | `IAM_URL` | Password/Client mode | `https://demo.accelbyte.io/iam` |
 
@@ -144,6 +145,7 @@ AUTH_MODE=password \
 EMAIL=user@example.com \
 PASSWORD=pass123 \
 CLIENT_ID=client123 \
+CLIENT_SECRET=secret456 \
 NAMESPACE=mygame \
 ./tests/e2e/test-login-flow.sh
 

@@ -33,6 +33,14 @@ help:
 	@echo "  make test-e2e-rewards - Test reward failures"
 	@echo "  make test-e2e-multiuser - Test multi-user isolation"
 	@echo ""
+	@echo "  M5 Rotation Tests:"
+	@echo "  make test-e2e-m5-rotation-basic   - Test basic rotation mechanics"
+	@echo "  make test-e2e-m5-rotation-reset   - Test rotation progress reset"
+	@echo "  make test-e2e-m5-rotation-no-reset - Test rotation without reset"
+	@echo "  make test-e2e-m5-rotation-claimed - Test claimed goal rotation"
+	@echo "  make test-e2e-m5-rotation-status  - Test rotation status endpoint"
+	@echo "  make test-e2e-m5-rotation-expiry  - Test rotation expiry fields"
+	@echo ""
 	@echo "Note: All test targets automatically load tests/e2e/.env if present"
 
 .PHONY: setup
@@ -84,7 +92,7 @@ dev-up: setup
 	docker-compose up -d
 	@echo ""
 	@echo "✓ Services started!"
-	@echo "  - PostgreSQL:          localhost:5432"
+	@echo "  - PostgreSQL:          localhost:5433"
 	@echo "  - Redis:               localhost:6379"
 	@echo "  - Challenge Service:   localhost:8000 (HTTP), localhost:6565 (gRPC)"
 	@echo "  - Event Handler:       localhost:6566 (gRPC)"
@@ -237,4 +245,52 @@ test-e2e-m4-random:
 		cd tests/e2e && set -a && . ./.env && set +a && ./test-m4-random-selection.sh; \
 	else \
 		cd tests/e2e && ./test-m4-random-selection.sh; \
+	fi
+
+.PHONY: test-e2e-m5-rotation-basic
+test-e2e-m5-rotation-basic:
+	@if [ -f tests/e2e/.env ]; then \
+		cd tests/e2e && set -a && . ./.env && set +a && ./test-m5-rotation-basic.sh; \
+	else \
+		cd tests/e2e && ./test-m5-rotation-basic.sh; \
+	fi
+
+.PHONY: test-e2e-m5-rotation-reset
+test-e2e-m5-rotation-reset:
+	@if [ -f tests/e2e/.env ]; then \
+		cd tests/e2e && set -a && . ./.env && set +a && ./test-m5-rotation-reset.sh; \
+	else \
+		cd tests/e2e && ./test-m5-rotation-reset.sh; \
+	fi
+
+.PHONY: test-e2e-m5-rotation-no-reset
+test-e2e-m5-rotation-no-reset:
+	@if [ -f tests/e2e/.env ]; then \
+		cd tests/e2e && set -a && . ./.env && set +a && ./test-m5-rotation-no-reset.sh; \
+	else \
+		cd tests/e2e && ./test-m5-rotation-no-reset.sh; \
+	fi
+
+.PHONY: test-e2e-m5-rotation-claimed
+test-e2e-m5-rotation-claimed:
+	@if [ -f tests/e2e/.env ]; then \
+		cd tests/e2e && set -a && . ./.env && set +a && ./test-m5-rotation-claimed.sh; \
+	else \
+		cd tests/e2e && ./test-m5-rotation-claimed.sh; \
+	fi
+
+.PHONY: test-e2e-m5-rotation-status
+test-e2e-m5-rotation-status:
+	@if [ -f tests/e2e/.env ]; then \
+		cd tests/e2e && set -a && . ./.env && set +a && ./test-m5-rotation-status.sh; \
+	else \
+		cd tests/e2e && ./test-m5-rotation-status.sh; \
+	fi
+
+.PHONY: test-e2e-m5-rotation-expiry
+test-e2e-m5-rotation-expiry:
+	@if [ -f tests/e2e/.env ]; then \
+		cd tests/e2e && set -a && . ./.env && set +a && ./test-m5-rotation-expiry-fields.sh; \
+	else \
+		cd tests/e2e && ./test-m5-rotation-expiry-fields.sh; \
 	fi

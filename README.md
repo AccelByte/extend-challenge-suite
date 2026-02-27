@@ -133,7 +133,7 @@ make dev-down
 ```
 
 This starts:
-- **PostgreSQL** on port 5432
+- **PostgreSQL** on port 5433
 - **Redis** on port 6379
 - **Challenge Service** on ports 6565 (gRPC), 8000 (HTTP), 8080 (metrics)
 - **Event Handler** on ports 6566 (gRPC), 8081 (metrics)
@@ -158,7 +158,9 @@ go run main.go challenges claim daily-quests daily-login
 
 ### 6. Run End-to-End Tests
 
-**Prerequisites**: Before running E2E tests, you must create required AGS items in your namespace. Follow [AGS_SETUP_GUIDE.md](AGS_SETUP_GUIDE.md) Step 4 to create:
+**Mock mode** (default): No prerequisites needed - just run the tests.
+
+**Real AGS mode**: Before running E2E tests with real authentication, you must create required AGS items in your namespace. Follow [AGS_SETUP_GUIDE.md](AGS_SETUP_GUIDE.md) Step 4 to create:
 - Items: `winter_sword`, `loyalty_badge`, `daily_chest` (INGAMEITEM, entitleable, active)
 - Currencies: `GOLD`, `GEMS` (VIRTUAL, published)
 
@@ -342,6 +344,18 @@ make test-e2e-prereqs      # Prerequisites
 make test-e2e-mixed        # Mixed goal types
 make test-e2e-errors       # Error scenarios
 make test-e2e-multiuser    # Multi-user isolation
+make test-e2e-m3-init      # M3 player initialization
+make test-e2e-inactive     # Inactive goal filtering
+make test-e2e-m4-batch     # M4 batch goal selection
+make test-e2e-m4-random    # M4 random goal selection
+
+# M5 rotation tests
+make test-e2e-m5-rotation-basic    # Basic rotation mechanics
+make test-e2e-m5-rotation-reset    # Rotation progress reset
+make test-e2e-m5-rotation-no-reset # Rotation without reset
+make test-e2e-m5-rotation-claimed  # Claimed goal rotation
+make test-e2e-m5-rotation-status   # Rotation status endpoint
+make test-e2e-m5-rotation-expiry   # Rotation expiry fields
 ```
 
 **Test Coverage**: 95%+ comprehensive coverage across unit, integration, and E2E tests.
@@ -504,11 +518,11 @@ See [tests/e2e/README.md](tests/e2e/README.md) for more troubleshooting tips.
 | Milestone | Status | Key Features |
 |-----------|--------|--------------|
 | **M1** | ✅ Complete | Foundation - Simple fixed challenges |
-| **M2** | ✅ Complete | Multiple challenges, tagging, filtering |
-| **M3** | ✅ Complete | Time-based challenges, schedules, rotation |
-| **M4** | 🚧 Planned | Randomized assignment, player segmentation |
-| **M5** | 🚧 Planned | Advanced prerequisites, visibility control |
-| **M6** | 🚧 Planned | Advanced assignment rules, claim conditions |
+| **M2** | ✅ Complete | Performance profiling & load testing |
+| **M3** | ✅ Complete | Per-user goal activation control |
+| **M4** | ✅ Complete | Batch & random goal selection |
+| **M5** | 🚧 In Progress | Time-based rotation |
+| **M6** | 🚧 Planned | Advanced prerequisites, visibility control |
 
 See [docs/MILESTONES.md](docs/MILESTONES.md) for detailed roadmap.
 
