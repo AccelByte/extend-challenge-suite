@@ -1,6 +1,6 @@
 # M5 Technical Specification: Time-Based Rotation
 
-**Status:** Implementation Complete (Phases 0.5–8 done, Phases 9–10 pending)
+**Status:** Implementation Complete (Phases 0.5–8, 11 done; Phases 9–10 pending)
 **Created:** 2025-11-25
 **Dependencies:** M3 (Goal Activation Control), M4 (Batch & Random Selection)
 
@@ -1513,6 +1513,37 @@ Execute updated loadtest scenarios, collect profiles, and produce a performance 
 - [ ] Link `M5_PERFORMANCE_RESULTS.md` from `TECH_SPEC_M5.md` Performance Benchmark Results section
 - [ ] Update `docs/PERFORMANCE_BASELINE.md` with M5 numbers (new baseline for M6)
 - [ ] Update `tests/loadtest/README.md` with scenario 5 description and run instructions
+
+### Phase 11: E2E Tests for Time-Based Rotation (0.5 days)
+
+Add comprehensive E2E bash test scripts covering all M5 rotation flows.
+
+> **Rationale:** M5 has excellent unit and integration test coverage but zero E2E tests. These tests verify the full stack: demo app CLI -> backend service -> event handler -> database, using the existing bash test pattern from M1-M4.
+
+> **Dependencies:** All M5 implementation phases (0.5-8) must be complete. Demo app must support `--inc` flag and `get-rotation-status` command.
+
+#### 11A: Prerequisites
+
+- [x] Fix duplicate `daily-challenges` ID in config (rename M5 rotation to `rotation-daily`)
+- [x] Sync event handler config with rotation goals
+- [x] Add `--inc` flag to demo app `trigger-event stat-update` command
+- [x] Add `get-rotation-status` CLI command to demo app
+- [x] Add goals with `resetProgress=false` and `allowReselection=false`
+- [x] Add M5 helper functions to `tests/e2e/helpers.sh`
+
+#### 11B: E2E Test Scripts
+
+- [x] `test-m5-rotation-basic.sh` — Relative progress & baseline calculation
+- [x] `test-m5-rotation-reset.sh` — Daily rotation with progress reset
+- [x] `test-m5-rotation-no-reset.sh` — Weekly no-reset (progress preserved)
+- [x] `test-m5-rotation-claimed.sh` — Claimed goal protection (allowReselection)
+- [x] `test-m5-rotation-status.sh` — Rotation status endpoint verification
+- [x] `test-m5-rotation-expiry-fields.sh` — ExpiresAt/ExpiresInSeconds field verification
+
+#### 11C: Integration
+
+- [x] Register all M5 tests in `tests/e2e/run-all-tests.sh`
+- [x] Update tech spec with Phase 11
 
 **Total: ~16.5-17.5 days**
 

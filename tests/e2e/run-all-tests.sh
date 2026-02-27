@@ -56,6 +56,13 @@ TESTS=(
     # M4 feature tests
     "test-m4-batch-selection.sh"
     "test-m4-random-selection.sh"
+    # M5 feature tests
+    "test-m5-rotation-basic.sh"
+    "test-m5-rotation-reset.sh"
+    "test-m5-rotation-no-reset.sh"
+    "test-m5-rotation-claimed.sh"
+    "test-m5-rotation-status.sh"
+    "test-m5-rotation-expiry-fields.sh"
     # Error scenario tests
     "test-error-scenarios.sh"
     "test-reward-failures.sh"

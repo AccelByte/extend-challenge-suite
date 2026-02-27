@@ -1039,6 +1039,141 @@ assert_not_contains() {
     echo -e "${GREEN}✅ PASS${NC}: $message"
 }
 
+# =====================================================
+# M5: Rotation Helper Functions
+# =====================================================
+
+# Assert greater than
+# Usage: assert_gt <actual> <expected> <message>
+assert_gt() {
+    local actual="$1"
+    local expected="$2"
+    local message="$3"
+
+    if [ "$actual" -le "$expected" ]; then
+        echo ""
+        echo -e "${RED}❌ ASSERTION FAILED${NC}"
+        if [ -n "$CURRENT_TEST_STEP" ]; then
+            echo -e "  ${BLUE}During:${NC} $CURRENT_TEST_STEP"
+        fi
+        echo -e "  ${BLUE}Message:${NC} $message"
+        echo -e "  ${BLUE}Expected:${NC} > $expected"
+        echo -e "  ${BLUE}Actual:${NC}   $actual"
+        exit 1
+    fi
+    echo -e "${GREEN}✅ PASS${NC}: $message"
+}
+
+# Assert not empty
+# Usage: assert_not_empty <value> <message>
+assert_not_empty() {
+    local value="$1"
+    local message="$2"
+
+    if [ -z "$value" ] || [ "$value" = "null" ] || [ "$value" = "" ]; then
+        echo ""
+        echo -e "${RED}❌ ASSERTION FAILED${NC}"
+        if [ -n "$CURRENT_TEST_STEP" ]; then
+            echo -e "  ${BLUE}During:${NC} $CURRENT_TEST_STEP"
+        fi
+        echo -e "  ${BLUE}Message:${NC} $message"
+        echo -e "  ${BLUE}Value:${NC} (empty or null)"
+        exit 1
+    fi
+    echo -e "${GREEN}✅ PASS${NC}: $message"
+}
+
+# Backdate the updated_at field in the database to simulate rotation period expiry
+# Usage: backdate_updated_at <user_id> <goal_id> <interval>
+# Example: backdate_updated_at "test-user" "daily-kills" "2 days"
+backdate_updated_at() {
+    local user_id="$1"
+    local goal_id="$2"
+    local interval="$3"
+
+    if [ -z "$user_id" ] || [ -z "$goal_id" ] || [ -z "$interval" ]; then
+        error_exit "backdate_updated_at requires user_id, goal_id, and interval parameters"
+    fi
+
+    docker compose exec -T postgres \
+        psql -U postgres -d challenge_db \
+        -c "UPDATE user_goal_progress SET updated_at = updated_at - INTERVAL '$interval' WHERE user_id = '$user_id' AND goal_id = '$goal_id';" \
+        > /dev/null 2>&1
+
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}✓${NC} Backdated updated_at for $goal_id by $interval"
+    else
+        echo -e "${RED}✗${NC} Failed to backdate updated_at"
+        return 1
+    fi
+}
+
+# Query a specific DB field for a user-goal pair
+# Usage: query_db_field <user_id> <goal_id> <field>
+# Returns: The field value
+query_db_field() {
+    local user_id="$1"
+    local goal_id="$2"
+    local field="$3"
+
+    if [ -z "$user_id" ] || [ -z "$goal_id" ] || [ -z "$field" ]; then
+        error_exit "query_db_field requires user_id, goal_id, and field parameters"
+    fi
+
+    docker compose exec -T postgres \
+        psql -U postgres -d challenge_db -t -A \
+        -c "SELECT $field FROM user_goal_progress WHERE user_id = '$user_id' AND goal_id = '$goal_id';" \
+        2>/dev/null | tr -d '[:space:]'
+}
+
+# Get expiresAt from API response for a specific goal
+# Usage: get_goal_expires_at <json> <goal-id>
+get_goal_expires_at() {
+    local json="$1"
+    local goal_id="$2"
+    echo "$json" | jq -r ".challenges[].goals[] | select(.goalId == \"$goal_id\") | .expiresAt // \"\"" 2>/dev/null
+}
+
+# Get expiresInSeconds from API response for a specific goal
+# Usage: get_goal_expires_in_seconds <json> <goal-id>
+get_goal_expires_in_seconds() {
+    local json="$1"
+    local goal_id="$2"
+    echo "$json" | jq -r ".challenges[].goals[] | select(.goalId == \"$goal_id\") | .expiresInSeconds // 0" 2>/dev/null
+}
+
+# Get goal status from API response
+# Usage: get_goal_status <json> <goal-id>
+get_goal_status() {
+    local json="$1"
+    local goal_id="$2"
+    echo "$json" | jq -r ".challenges[].goals[] | select(.goalId == \"$goal_id\") | .status // \"unknown\"" 2>/dev/null
+}
+
+# Get rotation status via CLI command
+# Usage: get_rotation_status <challenge-id>
+get_rotation_status() {
+    local challenge_id="$1"
+    if [ -z "$challenge_id" ]; then
+        error_exit "get_rotation_status requires challenge_id parameter"
+    fi
+    run_cli get-rotation-status "$challenge_id"
+}
+
+# Trigger stat update with inc value
+# Usage: trigger_stat_with_inc <stat-code> <value> <inc>
+trigger_stat_with_inc() {
+    local stat_code="$1"
+    local value="$2"
+    local inc="$3"
+
+    if [ -z "$stat_code" ] || [ -z "$value" ] || [ -z "$inc" ]; then
+        error_exit "trigger_stat_with_inc requires stat_code, value, and inc parameters"
+    fi
+
+    run_cli trigger-event stat-update --stat-code="$stat_code" --value="$value" --inc="$inc" --format=json
+}
+
 # Get user progress (list all challenges with progress)
 # Returns: JSON response from list-challenges
 get_user_progress() {
