@@ -159,6 +159,16 @@ NAMESPACE=mygame \
 | `test-m5-rotation-claimed.sh` | Claimed goal behavior across rotation | `allowReselection` true vs false |
 | `test-m5-rotation-status.sh` | Rotation status endpoint | `GET /v1/challenges/{id}/rotation` |
 | `test-m5-rotation-expiry-fields.sh` | Expiry fields on rotation goals | `expiresAt`, `expiresInSeconds` presence |
+| `test-m5-rotation-claim-guard.sh` | Claim rejected after rotation boundary | Stale claim rejection, DB status preserved |
+| `test-m5-rotation-full-cycle.sh` | Complete->claim->rotate->repeat cycle | Full repeatable daily challenge story |
+| `test-m5-rotation-initialize.sh` | Returning player rotation catch-up | Initialization after missed rotation periods |
+| `test-m5-rotation-multi-period.sh` | Multiple missed rotation periods | 7 missed periods equivalent to 1 |
+| `test-m5-rotation-login.sh` | Login events with rotation goals | Login event source + rotation mechanics |
+| `test-m5-rotation-monthly.sh` | Monthly rotation schedule | Monthly boundary, expiry <= 31 days |
+| `test-m5-rotation-completed-preserved.sh` | Completed preserved when resetProgress=false | Completed status survives rotation |
+| `test-m5-rotation-expiry-on-init.sh` | ExpiresAt set before any events | Expiry populated at initialization |
+| `test-m5-rotation-mixed-schedules.sh` | Mixed daily+weekly expiry in same response | Different schedules, correct expiry ranges |
+| `test-m5-rotation-claim-guard-error.sh` | Claim guard error response details | Error message validation |
 
 ### Error Scenario Tests
 
@@ -270,7 +280,7 @@ tests/e2e/
 ├── QUICK_START.md                     # Quick start guide
 ├── .env.example                       # Example configuration
 ├── helpers.sh                         # Test helper functions
-├── run-all-tests.sh                   # Test runner (all 19 tests)
+├── run-all-tests.sh                   # Test runner (all 29 tests)
 ├── test-login-flow.sh                 # Login flow test
 ├── test-stat-flow.sh                  # Stat update test
 ├── test-daily-goal.sh                 # Daily goal test
@@ -287,6 +297,16 @@ tests/e2e/
 ├── test-m5-rotation-claimed.sh        # M5: Claimed goal across rotation
 ├── test-m5-rotation-status.sh         # M5: Rotation status endpoint
 ├── test-m5-rotation-expiry-fields.sh  # M5: Expiry field validation
+├── test-m5-rotation-claim-guard.sh    # M5: Claim guard after rotation
+├── test-m5-rotation-full-cycle.sh     # M5: Full rotation cycle
+├── test-m5-rotation-initialize.sh     # M5: Returning player catch-up
+├── test-m5-rotation-multi-period.sh   # M5: Multiple missed periods
+├── test-m5-rotation-login.sh          # M5: Login events with rotation
+├── test-m5-rotation-monthly.sh        # M5: Monthly rotation schedule
+├── test-m5-rotation-completed-preserved.sh  # M5: Completed preserved (no reset)
+├── test-m5-rotation-expiry-on-init.sh # M5: Expiry set at initialization
+├── test-m5-rotation-mixed-schedules.sh # M5: Mixed daily+weekly expiry
+├── test-m5-rotation-claim-guard-error.sh # M5: Claim guard error response
 ├── test-error-scenarios.sh            # Error scenarios
 ├── test-reward-failures.sh            # Reward failure handling
 └── test-multi-user.sh                 # Multi-user concurrency
