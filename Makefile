@@ -40,6 +40,11 @@ help:
 	@echo "  make test-e2e-m5-rotation-claimed - Test claimed goal rotation"
 	@echo "  make test-e2e-m5-rotation-status  - Test rotation status endpoint"
 	@echo "  make test-e2e-m5-rotation-expiry  - Test rotation expiry fields"
+	@echo "  make test-e2e-m5-rotation-claim-guard  - Test claim-after-rotation guard"
+	@echo "  make test-e2e-m5-rotation-full-cycle   - Test full rotation cycle"
+	@echo "  make test-e2e-m5-rotation-initialize   - Test returning player catch-up"
+	@echo "  make test-e2e-m5-rotation-multi-period - Test multiple missed periods"
+	@echo "  make test-e2e-m5-rotation-login        - Test login events with rotation"
 	@echo ""
 	@echo "Note: All test targets automatically load tests/e2e/.env if present"
 
@@ -47,7 +52,7 @@ help:
 test-e2e-help:
 	@echo "E2E Test Targets:"
 	@echo ""
-	@echo "  make test-e2e              Run all 19 E2E tests"
+	@echo "  make test-e2e              Run all 24 E2E tests"
 	@echo ""
 	@echo "  Happy Path:"
 	@echo "    make test-e2e-login      Login flow"
@@ -72,6 +77,11 @@ test-e2e-help:
 	@echo "    make test-e2e-m5-rotation-claimed  Claimed goals"
 	@echo "    make test-e2e-m5-rotation-status   Status endpoint"
 	@echo "    make test-e2e-m5-rotation-expiry   Expiry fields"
+	@echo "    make test-e2e-m5-rotation-claim-guard  Claim guard"
+	@echo "    make test-e2e-m5-rotation-full-cycle   Full cycle"
+	@echo "    make test-e2e-m5-rotation-initialize   Initialize catch-up"
+	@echo "    make test-e2e-m5-rotation-multi-period Multi-period"
+	@echo "    make test-e2e-m5-rotation-login        Login rotation"
 	@echo ""
 	@echo "  Error Scenarios:"
 	@echo "    make test-e2e-errors     Error scenarios"
@@ -329,4 +339,44 @@ test-e2e-m5-rotation-expiry:
 		cd tests/e2e && set -a && . ./.env && set +a && ./test-m5-rotation-expiry-fields.sh; \
 	else \
 		cd tests/e2e && ./test-m5-rotation-expiry-fields.sh; \
+	fi
+
+.PHONY: test-e2e-m5-rotation-claim-guard
+test-e2e-m5-rotation-claim-guard:
+	@if [ -f tests/e2e/.env ]; then \
+		cd tests/e2e && set -a && . ./.env && set +a && ./test-m5-rotation-claim-guard.sh; \
+	else \
+		cd tests/e2e && ./test-m5-rotation-claim-guard.sh; \
+	fi
+
+.PHONY: test-e2e-m5-rotation-full-cycle
+test-e2e-m5-rotation-full-cycle:
+	@if [ -f tests/e2e/.env ]; then \
+		cd tests/e2e && set -a && . ./.env && set +a && ./test-m5-rotation-full-cycle.sh; \
+	else \
+		cd tests/e2e && ./test-m5-rotation-full-cycle.sh; \
+	fi
+
+.PHONY: test-e2e-m5-rotation-initialize
+test-e2e-m5-rotation-initialize:
+	@if [ -f tests/e2e/.env ]; then \
+		cd tests/e2e && set -a && . ./.env && set +a && ./test-m5-rotation-initialize.sh; \
+	else \
+		cd tests/e2e && ./test-m5-rotation-initialize.sh; \
+	fi
+
+.PHONY: test-e2e-m5-rotation-multi-period
+test-e2e-m5-rotation-multi-period:
+	@if [ -f tests/e2e/.env ]; then \
+		cd tests/e2e && set -a && . ./.env && set +a && ./test-m5-rotation-multi-period.sh; \
+	else \
+		cd tests/e2e && ./test-m5-rotation-multi-period.sh; \
+	fi
+
+.PHONY: test-e2e-m5-rotation-login
+test-e2e-m5-rotation-login:
+	@if [ -f tests/e2e/.env ]; then \
+		cd tests/e2e && set -a && . ./.env && set +a && ./test-m5-rotation-login.sh; \
+	else \
+		cd tests/e2e && ./test-m5-rotation-login.sh; \
 	fi

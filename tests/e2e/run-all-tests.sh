@@ -97,6 +97,11 @@ TESTS=(
     "test-m5-rotation-claimed.sh"
     "test-m5-rotation-status.sh"
     "test-m5-rotation-expiry-fields.sh"
+    "test-m5-rotation-claim-guard.sh"
+    "test-m5-rotation-full-cycle.sh"
+    "test-m5-rotation-initialize.sh"
+    "test-m5-rotation-multi-period.sh"
+    "test-m5-rotation-login.sh"
     # Error scenario tests
     "test-error-scenarios.sh"
     "test-reward-failures.sh"
