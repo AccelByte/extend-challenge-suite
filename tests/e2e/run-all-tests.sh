@@ -107,6 +107,11 @@ TESTS=(
     "test-m5-rotation-expiry-on-init.sh"
     "test-m5-rotation-mixed-schedules.sh"
     "test-m5-rotation-claim-guard-error.sh"
+    "test-m5-rotation-in-progress.sh"
+    "test-m5-rotation-absolute-coexist.sh"
+    "test-m5-rotation-global-sync.sh"
+    "test-m5-rotation-batch-select.sh"
+    "test-m5-rotation-never-progressed.sh"
     # Error scenario tests
     "test-error-scenarios.sh"
     "test-reward-failures.sh"

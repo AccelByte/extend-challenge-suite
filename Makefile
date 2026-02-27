@@ -50,6 +50,11 @@ help:
 	@echo "  make test-e2e-m5-rotation-expiry-on-init - Test expiry set at initialization"
 	@echo "  make test-e2e-m5-rotation-mixed-schedules - Test mixed daily+weekly expiry"
 	@echo "  make test-e2e-m5-rotation-claim-guard-error - Test claim guard error response"
+	@echo "  make test-e2e-m5-rotation-in-progress    - Test partial progress reset on rotation"
+	@echo "  make test-e2e-m5-rotation-absolute-coexist - Test rotation vs absolute isolation"
+	@echo "  make test-e2e-m5-rotation-global-sync    - Test two users same global boundary"
+	@echo "  make test-e2e-m5-rotation-batch-select   - Test M4+M5 batch select with expiry"
+	@echo "  make test-e2e-m5-rotation-never-progressed - Test dormant player rotation"
 	@echo ""
 	@echo "Note: All test targets automatically load tests/e2e/.env if present"
 
@@ -57,7 +62,7 @@ help:
 test-e2e-help:
 	@echo "E2E Test Targets:"
 	@echo ""
-	@echo "  make test-e2e              Run all 29 E2E tests"
+	@echo "  make test-e2e              Run all 34 E2E tests"
 	@echo ""
 	@echo "  Happy Path:"
 	@echo "    make test-e2e-login      Login flow"
@@ -92,6 +97,11 @@ test-e2e-help:
 	@echo "    make test-e2e-m5-rotation-expiry-on-init Expiry on init"
 	@echo "    make test-e2e-m5-rotation-mixed-schedules Mixed schedules"
 	@echo "    make test-e2e-m5-rotation-claim-guard-error Claim guard error"
+	@echo "    make test-e2e-m5-rotation-in-progress    Partial progress reset"
+	@echo "    make test-e2e-m5-rotation-absolute-coexist Rotation vs absolute"
+	@echo "    make test-e2e-m5-rotation-global-sync    Global sync two users"
+	@echo "    make test-e2e-m5-rotation-batch-select   M4+M5 batch select"
+	@echo "    make test-e2e-m5-rotation-never-progressed Dormant player"
 	@echo ""
 	@echo "  Error Scenarios:"
 	@echo "    make test-e2e-errors     Error scenarios"
@@ -429,4 +439,44 @@ test-e2e-m5-rotation-claim-guard-error:
 		cd tests/e2e && set -a && . ./.env && set +a && ./test-m5-rotation-claim-guard-error.sh; \
 	else \
 		cd tests/e2e && ./test-m5-rotation-claim-guard-error.sh; \
+	fi
+
+.PHONY: test-e2e-m5-rotation-in-progress
+test-e2e-m5-rotation-in-progress:
+	@if [ -f tests/e2e/.env ]; then \
+		cd tests/e2e && set -a && . ./.env && set +a && ./test-m5-rotation-in-progress.sh; \
+	else \
+		cd tests/e2e && ./test-m5-rotation-in-progress.sh; \
+	fi
+
+.PHONY: test-e2e-m5-rotation-absolute-coexist
+test-e2e-m5-rotation-absolute-coexist:
+	@if [ -f tests/e2e/.env ]; then \
+		cd tests/e2e && set -a && . ./.env && set +a && ./test-m5-rotation-absolute-coexist.sh; \
+	else \
+		cd tests/e2e && ./test-m5-rotation-absolute-coexist.sh; \
+	fi
+
+.PHONY: test-e2e-m5-rotation-global-sync
+test-e2e-m5-rotation-global-sync:
+	@if [ -f tests/e2e/.env ]; then \
+		cd tests/e2e && set -a && . ./.env && set +a && ./test-m5-rotation-global-sync.sh; \
+	else \
+		cd tests/e2e && ./test-m5-rotation-global-sync.sh; \
+	fi
+
+.PHONY: test-e2e-m5-rotation-batch-select
+test-e2e-m5-rotation-batch-select:
+	@if [ -f tests/e2e/.env ]; then \
+		cd tests/e2e && set -a && . ./.env && set +a && ./test-m5-rotation-batch-select.sh; \
+	else \
+		cd tests/e2e && ./test-m5-rotation-batch-select.sh; \
+	fi
+
+.PHONY: test-e2e-m5-rotation-never-progressed
+test-e2e-m5-rotation-never-progressed:
+	@if [ -f tests/e2e/.env ]; then \
+		cd tests/e2e && set -a && . ./.env && set +a && ./test-m5-rotation-never-progressed.sh; \
+	else \
+		cd tests/e2e && ./test-m5-rotation-never-progressed.sh; \
 	fi
