@@ -2,35 +2,39 @@
 
 **Project**: AccelByte Extend Challenge Service
 **Started**: 2025-10-13 (M1)
-**Last Updated**: 2025-11-04 (M3 started)
+**Last Updated**: 2026-02-27 (M5 Phase 8)
 
 ---
 
-## Current Phase: Milestone 3 (M3) - Per-User Goal Assignment Control
+## Current Phase: Milestone 5 (M5) - Time-Based Rotation
 
-**Status**: 🟢 M1 Complete, Starting M3 Implementation
+**Status**: 🟡 M5 Phases 0.5–7 Complete, Phase 8 (Documentation) In Progress
 
-**M1 Completion Summary:**
-- ✅ All core functionality implemented and tested
-- ✅ Local development environment operational (`make dev-up`)
-- ✅ Comprehensive E2E test suite (9 tests, 95%+ coverage)
-- ✅ Documentation complete (README.md, AGS_SETUP_GUIDE.md)
-- ✅ Demo app functional and tested
-- ✅ Performance validated (M2): 300-350 RPS API, 494 EPS events
+**M4 Completion Summary:**
+- ✅ Batch manual goal selection (`POST /v1/challenges/{id}/goals/batch-select`)
+- ✅ Random goal selection (`POST /v1/challenges/{id}/goals/random-select`)
+- ✅ BatchUpsertGoalActive repository method
+- ✅ All tests passing, linter clean
 
-**M3 Implementation Started**: 2025-11-04
+**M5 Implementation Progress:**
+- ✅ Phase 0.5: GoalType → ProgressMode migration (absolute/relative)
+- ✅ Phase 1: Unified BufferedEvent buffer (3 maps → 1 map)
+- ✅ Phase 2: Unified COPY flush path (single BatchUpsertProgressWithCOPY)
+- ✅ Phase 3: Rotation config schema and validation
+- ✅ Phase 4: Rotation detection utilities (CalculateNextExpiresAt, etc.)
+- ✅ Phase 5: SQL CASE rotation logic in batch UPDATE
+- ✅ Phase 6: API handler updates (expiresAt, expiresInSeconds, rotation endpoint)
+- ✅ Phase 7: Testing checklist complete
+- 🟡 Phase 8: Documentation updates (in progress)
+- ⬜ Phase 9: Loadtest fixture and script updates
+- ⬜ Phase 10: Performance report
 
 ---
 
 ## Milestone 3: Per-User Goal Assignment Control
 
 **Technical Spec**: [TECH_SPEC_M3.md](./TECH_SPEC_M3.md)
-**Estimated Duration**: 10 days (80 hours)
-**Status**: 🟡 In Progress
-
-### Overview
-
-M3 introduces goal assignment control, enabling players to manage which goals they actively work on. This is the foundation for goal selection (M4) and rotation (M5).
+**Status**: ✅ Complete
 
 ### Key Features
 - Player initialization endpoint for default goal assignment
@@ -42,100 +46,12 @@ M3 introduces goal assignment control, enabling players to manage which goals th
 
 ### Implementation Progress
 
-**Phase 1: Database and Configuration** (Day 1) - ✅ COMPLETE
-- [x] Update database schema (modify existing migration file)
-- [x] Add `is_active`, `assigned_at`, `expires_at` columns
-- [x] Add `idx_user_goal_progress_user_active` index
-- [x] Update configuration models with `DefaultAssigned` field
-- [x] Update repository interfaces
-- [x] Implement cache method: `GetGoalsWithDefaultAssigned()`
-- [x] Implement repository methods: `GetGoalsByIDs()`, `BulkInsert()`, `UpsertGoalActive()`
-- [x] Run linter (0 issues)
-- [x] All tests passing
-- [ ] (Skipped) Run `make db-reset && make db-migrate-up` - not needed for development
-
-**Phase 2: Initialization Endpoint** (Day 2) - ✅ COMPLETE
-- [x] Implement InitializePlayer business logic in `pkg/service/initialize.go`
-  - [x] Fast path optimization (0 DB writes on subsequent logins, ~1-2ms)
-  - [x] Config sync support (automatically assigns new default goals)
-  - [x] Complete error handling and validation
-  - [x] 100% test coverage on business logic
-- [x] Add protobuf definition for initialization endpoint
-  - [x] InitializeRequest message (user_id/namespace from JWT)
-  - [x] InitializeResponse message (assigned_goals, new_assignments, total_active)
-  - [x] AssignedGoal message (complete goal details)
-- [x] Implement POST /v1/challenges/initialize API handler
-  - [x] gRPC handler in `pkg/server/challenge_service_server.go`
-  - [x] JWT authentication and user context extraction
-  - [x] Error mapping to proper gRPC status codes
-- [x] Write unit tests for InitializePlayer (11 test cases, 100% coverage)
-  - [x] First login (assigns default goals)
-  - [x] Subsequent login (fast path, 0 inserts)
-  - [x] Config sync (new default goals added)
-  - [x] No default goals scenario
-  - [x] Input validation tests (4 test cases)
-  - [x] Error scenarios (3 test cases)
-- [x] Write integration tests for initialization endpoint (7 test cases, all passing)
-  - [x] First login verification
-  - [x] Subsequent login fast path
-  - [x] Multi-user isolation
-  - [x] Progress preservation
-  - [x] Idempotency (5 sequential calls)
-  - [x] Concurrent calls (10 parallel requests)
-  - [x] Thread safety verified
-- [x] Update test config with default_assigned flags
-  - [x] `config/challenges.test.json` updated
-- [x] Run linter (0 issues)
-- [x] All tests passing
-
-**Performance Metrics (Phase 2) - Estimated based on query analysis:**
-- First login: 1 SELECT + 1 INSERT (~10ms estimated)
-- Subsequent login: 1 SELECT, 0 INSERT (~1-2ms estimated) - fast path
-- Config sync: 1 SELECT + 1 INSERT (~3ms estimated)
-- Test coverage: 100% on business logic, 96.4% overall
-- Note: Performance numbers are theoretical estimates from TECH_SPEC_M3.md, not measured via benchmarks
-
-**Phase 3: Goal Activation Endpoint** (Day 3) - ✅ COMPLETE
-- [x] Implement goal activation/deactivation business logic
-- [x] Add protobuf definitions and gRPC handlers
-- [x] Write unit tests (100% coverage)
-- [x] Write integration tests
-- [x] Run linter (0 issues)
-
-**Phase 4: Update API Queries** (Day 4) - ✅ COMPLETE
-- [x] Update GetChallenges with active_only filtering
-- [x] Update GetChallenge with active_only filtering
-- [x] Update optimized HTTP handler (feature parity with gRPC)
-- [x] Write unit tests for activeOnly parameter
-- [x] Write integration tests (http_grpc_parity_test.go)
-- [x] Run linter (0 issues)
-
-**Phase 5: Update Event Processing** (Day 5) - ✅ COMPLETE
-- [x] Update 3 UPSERT queries with `AND is_active = true` WHERE clause
-- [x] Write unit tests (9 test cases, 100% coverage)
-- [x] Publish common library v0.5.0
-- [x] Update event handler and service dependencies
-- [x] Run EXPLAIN ANALYZE (query plan verification)
-- [x] Run microbenchmarks (production scale validation)
-- [x] Performance investigation (BatchIncrementProgress optimization analysis)
-- [x] Documentation: M3_PHASE5_PERFORMANCE_RESULTS.md, BATCH_INCREMENT_OPTIMIZATION.md
-- [x] Run linter (0 issues)
-
-**Performance Results (Phase 5):**
-- EXPLAIN ANALYZE: < 1ms execution, correct query plans ✅
-- BatchUpsertProgressWithCOPY: 39.3ms @ 1,000 rows ✅
-- BatchIncrementProgress: 5.67ms @ 60 rows (production scale) ✅ (9x faster than target)
-- Single IncrementProgress: 1.49ms ✅
-- Decision: Keep current implementation (no optimization needed)
-- See: [M3_PHASE5_PERFORMANCE_RESULTS.md](./M3_PHASE5_PERFORMANCE_RESULTS.md), [BATCH_INCREMENT_OPTIMIZATION.md](./BATCH_INCREMENT_OPTIMIZATION.md)
-
-**Phase 6-9**: See [TECH_SPEC_M3.md](./TECH_SPEC_M3.md) for remaining phases
+All 9 phases complete. See [TECH_SPEC_M3.md](./TECH_SPEC_M3.md) for detailed phase breakdown.
 
 ### Success Criteria
-- [ ] All tests pass with ≥80% coverage
-- [ ] Performance matches M2 baselines (no regression)
-- [ ] Linter reports 0 issues
-- [ ] Load tests validate assignment control performance
+- [x] All tests pass with ≥80% coverage
+- [x] Performance matches M2 baselines (no regression)
+- [x] Linter reports 0 issues
 
 ---
 

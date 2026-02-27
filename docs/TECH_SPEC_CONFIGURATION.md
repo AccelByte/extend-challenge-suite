@@ -165,29 +165,37 @@ extend-challenge-event-handler/config/challenges.json
 {
   "challenges": [
     {
-      "id": "string (unique challenge identifier)",
+      "challengeId": "string (unique challenge identifier)",
       "name": "string (display name)",
       "description": "string (user-facing description)",
       "goals": [
         {
-          "id": "string (unique goal identifier)",
+          "goalId": "string (unique goal identifier)",
           "name": "string (display name)",
           "description": "string (user-facing description)",
-          "type": "string ('absolute', 'increment', or 'daily')",
-          "event_source": "string ('login' or 'statistic')",
-          "daily": "boolean (optional, only for increment type, default: false)",
-          "default_assigned": "boolean (optional, default: false, M3: auto-assign to new players)",
+          "eventSource": "string ('login' or 'statistic')",
+          "defaultAssigned": "boolean (optional, default: false, M3: auto-assign to new players)",
           "requirement": {
-            "stat_code": "string (event field to track)",
+            "statCode": "string (event field to track)",
             "operator": "string (only '>=' supported in M1)",
-            "target_value": "number (goal threshold)"
+            "targetValue": "number (goal threshold)",
+            "progressMode": "string ('absolute' or 'relative', default: 'absolute')"
           },
           "reward": {
             "type": "string ('ITEM' or 'WALLET')",
-            "reward_id": "string (item code or currency code)",
+            "rewardId": "string (item code or currency code)",
             "quantity": "number (amount to grant)"
           },
-          "prerequisites": ["array of goal IDs (can be empty)"]
+          "prerequisites": ["array of goal IDs (can be empty)"],
+          "rotation": {
+            "enabled": "boolean (required if rotation block present)",
+            "type": "string (only 'global' in M5)",
+            "schedule": "string ('daily', 'weekly', or 'monthly')",
+            "onExpiry": {
+              "resetProgress": "boolean",
+              "allowReselection": "boolean"
+            }
+          }
         }
       ]
     }
@@ -195,23 +203,327 @@ extend-challenge-event-handler/config/challenges.json
 }
 ```
 
-### Goal Types
+**Note:** The `rotation` block is optional. Omit it entirely for non-rotating goals.
 
-**New in Phase 5.2**: Goals have explicit types that determine how progress is tracked.
+### Progress Modes
+
+**Updated in M5**: Goals use a `progressMode` field on the `requirement` object to determine how progress is tracked. This replaces the previous `type` and `daily` fields from earlier milestones.
 
 #### Absolute (`"absolute"`)
-**Usage:** Track absolute stat values (default type).
+**Usage:** Track absolute stat values. Progress equals the latest stat value from events.
+
+**Best for:** Lifetime achievements and cumulative stats -- total kills, total logins, player level, high scores.
 
 **Behavior:**
 - Progress value = latest stat value from event
-- Example: User has 100 kills → progress = 100
-- Works with AGS Statistic Service events
+- Example: User has 100 kills -> progress = 100
+- Works with both login and statistic event sources
+- No baseline tracking needed
 
 **Config Example:**
 ```json
 {
+  "goalId": "kill-100-enemies",
+  "name": "Century Slayer",
+  "description": "Defeat 100 enemies total",
+  "eventSource": "statistic",
+  "defaultAssigned": true,
+  "requirement": {
+    "statCode": "kills",
+    "operator": ">=",
+    "targetValue": 100,
+    "progressMode": "absolute"
+  },
+  "reward": {
+    "type": "WALLET",
+    "rewardId": "GEMS",
+    "quantity": 25
+  },
+  "prerequisites": []
+}
+```
+
+**Event Flow:**
+```
+Stat Event: { statCode: "kills", value: 50 }  -> progress = 50
+Stat Event: { statCode: "kills", value: 75 }  -> progress = 75
+Stat Event: { statCode: "kills", value: 100 } -> progress = 100, status = completed
+```
+
+---
+
+#### Relative (`"relative"`)
+**Usage:** Track progress relative to a baseline captured at the start of a rotation period. Progress equals the current stat value minus the baseline.
+
+**Best for:** Time-based rotating goals -- daily quests, weekly challenges, monthly missions. The baseline is captured when the rotation period begins, so only progress made during the current period counts.
+
+**Behavior:**
+- Baseline captured at rotation period start (e.g., start of day for daily rotation)
+- Progress value = current stat value - baseline
+- Example: Baseline = 50 kills, current = 65 kills -> progress = 15
+- Requires a `rotation` block on the goal (validation enforces this)
+- When rotation period expires, baseline is recaptured and progress resets
+
+**Config Example:**
+```json
+{
+  "goalId": "daily-kill-10",
+  "name": "Daily Slayer",
+  "description": "Defeat 10 enemies today",
+  "eventSource": "statistic",
+  "defaultAssigned": true,
+  "requirement": {
+    "statCode": "kills",
+    "operator": ">=",
+    "targetValue": 10,
+    "progressMode": "relative"
+  },
+  "reward": {
+    "type": "WALLET",
+    "rewardId": "GEMS",
+    "quantity": 5
+  },
+  "prerequisites": [],
+  "rotation": {
+    "enabled": true,
+    "type": "global",
+    "schedule": "daily",
+    "onExpiry": {
+      "resetProgress": true,
+      "allowReselection": true
+    }
+  }
+}
+```
+
+**Event Flow (Daily Rotation):**
+```
+Day 1 starts, baseline captured: kills = 50
+  Stat Event: { statCode: "kills", value: 55 }  -> progress = 55 - 50 = 5
+  Stat Event: { statCode: "kills", value: 60 }  -> progress = 60 - 50 = 10, status = completed
+  User claims reward
+
+Day 2 starts, baseline recaptured: kills = 65
+  Stat Event: { statCode: "kills", value: 68 }  -> progress = 68 - 65 = 3
+  Stat Event: { statCode: "kills", value: 75 }  -> progress = 75 - 65 = 10, status = completed
+  User claims reward again
+```
+
+---
+
+### Progress Mode Decision Matrix
+
+| Progress Mode | Progress Tracking | Rotation | Use Case |
+|---------------|------------------|----------|----------|
+| `absolute` | Latest stat value | Not allowed | Lifetime kills, total logins, player level |
+| `relative` | Stat value minus baseline | Required | Daily quests, weekly challenges, monthly missions |
+
+---
+
+### Rotation Config
+
+**New in M5**: Goals can include an optional `rotation` block that enables time-based rotation. When a rotation period expires, the goal resets and becomes available again in the next period.
+
+#### Schema
+
+```json
+{
+  "rotation": {
+    "enabled": true,
+    "type": "global",
+    "schedule": "daily",
+    "onExpiry": {
+      "resetProgress": true,
+      "allowReselection": true
+    }
+  }
+}
+```
+
+#### Field Reference
+
+| Field | Type | Required | Values | Description |
+|-------|------|----------|--------|-------------|
+| `enabled` | boolean | Yes | `true`, `false` | Whether rotation is active for this goal |
+| `type` | string | Yes | `"global"` | Rotation type. M5 supports only `"global"` (all users share same rotation schedule) |
+| `schedule` | string | Yes | `"daily"`, `"weekly"`, `"monthly"` | How often the goal rotates |
+| `onExpiry.resetProgress` | boolean | Yes | `true`, `false` | Whether to reset progress when the rotation period expires |
+| `onExpiry.allowReselection` | boolean | Yes | `true`, `false` | Whether the goal can be re-assigned in the next rotation period |
+
+#### Schedule Details
+
+| Schedule | Period Start | Period End | Example |
+|----------|-------------|------------|---------|
+| `daily` | 00:00 UTC | 23:59:59 UTC | Resets every day at midnight UTC |
+| `weekly` | Monday 00:00 UTC | Sunday 23:59:59 UTC | Resets every Monday at midnight UTC |
+| `monthly` | 1st of month 00:00 UTC | Last day of month 23:59:59 UTC | Resets on the 1st of each month |
+
+#### Constraints
+
+- **Rotation requires `progressMode: "relative"`**: A goal with a `rotation` block must use `progressMode: "relative"` on its requirement. This is enforced by the config validator. Using `progressMode: "absolute"` with rotation is an error because absolute progress does not support baseline tracking.
+- **Rotation `type` must be `"global"`**: M5 only supports global rotation (all players share the same schedule). Per-user rotation types may be added in future milestones.
+- **`enabled: false`**: If `enabled` is `false`, the rotation block is ignored and the goal behaves as a non-rotating relative goal.
+
+---
+
+### Config Examples
+
+#### Example 1: Daily Rotating Goal
+
+A goal that resets every day. Players must defeat 10 enemies each day to earn the reward.
+
+```json
+{
+  "goalId": "daily-kill-10",
+  "name": "Daily Slayer",
+  "description": "Defeat 10 enemies today",
+  "eventSource": "statistic",
+  "defaultAssigned": true,
+  "requirement": {
+    "statCode": "kills",
+    "operator": ">=",
+    "targetValue": 10,
+    "progressMode": "relative"
+  },
+  "reward": {
+    "type": "WALLET",
+    "rewardId": "GEMS",
+    "quantity": 5
+  },
+  "prerequisites": [],
+  "rotation": {
+    "enabled": true,
+    "type": "global",
+    "schedule": "daily",
+    "onExpiry": {
+      "resetProgress": true,
+      "allowReselection": true
+    }
+  }
+}
+```
+
+#### Example 2: Weekly Rotating Goal
+
+A goal that resets every Monday. Players must win 20 matches during the week.
+
+```json
+{
+  "goalId": "weekly-wins-20",
+  "name": "Weekly Victor",
+  "description": "Win 20 matches this week",
+  "eventSource": "statistic",
+  "defaultAssigned": true,
+  "requirement": {
+    "statCode": "matches_won",
+    "operator": ">=",
+    "targetValue": 20,
+    "progressMode": "relative"
+  },
+  "reward": {
+    "type": "ITEM",
+    "rewardId": "weekly_chest",
+    "quantity": 1
+  },
+  "prerequisites": [],
+  "rotation": {
+    "enabled": true,
+    "type": "global",
+    "schedule": "weekly",
+    "onExpiry": {
+      "resetProgress": true,
+      "allowReselection": true
+    }
+  }
+}
+```
+
+#### Example 3: Monthly Rotating Goal
+
+A goal that resets on the 1st of each month. Players must earn 5000 score during the month.
+
+```json
+{
+  "goalId": "monthly-score-5000",
+  "name": "Monthly Grinder",
+  "description": "Earn 5000 score this month",
+  "eventSource": "statistic",
+  "defaultAssigned": false,
+  "requirement": {
+    "statCode": "score",
+    "operator": ">=",
+    "targetValue": 5000,
+    "progressMode": "relative"
+  },
+  "reward": {
+    "type": "WALLET",
+    "rewardId": "GEMS",
+    "quantity": 100
+  },
+  "prerequisites": [],
+  "rotation": {
+    "enabled": true,
+    "type": "global",
+    "schedule": "monthly",
+    "onExpiry": {
+      "resetProgress": true,
+      "allowReselection": true
+    }
+  }
+}
+```
+
+#### Example 4: Non-Rotating Absolute Goal
+
+A lifetime achievement goal with no rotation. Progress tracks the total stat value.
+
+```json
+{
+  "goalId": "reach-level-50",
+  "name": "Veteran",
+  "description": "Reach player level 50",
+  "eventSource": "statistic",
+  "defaultAssigned": true,
+  "requirement": {
+    "statCode": "player_level",
+    "operator": ">=",
+    "targetValue": 50,
+    "progressMode": "absolute"
+  },
+  "reward": {
+    "type": "ITEM",
+    "rewardId": "veteran_badge",
+    "quantity": 1
+  },
+  "prerequisites": []
+}
+```
+
+**Note:** Non-rotating goals do not include a `rotation` block. The field is omitted entirely (not set to `enabled: false`).
+
+---
+
+### GoalType to ProgressMode Migration Guide
+
+**M5 replaced the `type` and `daily` fields with `progressMode` and `rotation`.** This section documents how to migrate existing challenge configurations.
+
+#### Migration Rules
+
+| Old Config | New Config | Notes |
+|------------|------------|-------|
+| `"type": "absolute"` | `"progressMode": "absolute"` on requirement | Behavior unchanged. Progress equals stat value. |
+| `"type": "increment"` | `"progressMode": "absolute"` on requirement | Was always tracking the absolute stat value from events. No rotation block needed. |
+| `"type": "increment", "daily": true` | `"progressMode": "relative"` on requirement + `rotation` block | Daily deduplication is now handled by relative progress mode with daily rotation. |
+| `"type": "daily"` | `"progressMode": "relative"` on requirement + `rotation` block with `"schedule": "daily"` | Daily reset behavior now handled by rotation with `resetProgress: true`. |
+
+#### Migration Example: Increment Goal
+
+**Before (old format):**
+```json
+{
   "id": "kill-100-enemies",
-  "type": "absolute",
+  "type": "increment",
+  "event_source": "statistic",
   "requirement": {
     "stat_code": "kills",
     "operator": ">=",
@@ -220,270 +532,84 @@ extend-challenge-event-handler/config/challenges.json
 }
 ```
 
-**Event Flow:**
-```
-Stat Event: { statCode: "kills", value: 50 }  → progress = 50
-Stat Event: { statCode: "kills", value: 75 }  → progress = 75
-Stat Event: { statCode: "kills", value: 100 } → progress = 100, status = completed
-```
-
----
-
-#### Increment (`"increment"`)
-**Usage:** Count event occurrences (e.g., login count, match count).
-
-**Behavior:**
-- Each event increments progress by 1
-- Progress accumulates across multiple events
-- Uses atomic DB increment: `progress = progress + 1`
-- Optional `daily: true` flag limits to once per day
-
-**Config Example (Regular Increment):**
+**After (new format):**
 ```json
 {
-  "id": "login-100-times",
-  "type": "increment",
-  "daily": false,
+  "goalId": "kill-100-enemies",
+  "eventSource": "statistic",
   "requirement": {
-    "stat_code": "login_count",
+    "statCode": "kills",
     "operator": ">=",
-    "target_value": 100
+    "targetValue": 100,
+    "progressMode": "absolute"
   }
 }
 ```
 
-**Event Flow (Regular):**
-```
-Login Event #1 → progress = 1
-Login Event #2 → progress = 2
-Login Event #3 → progress = 3
-...
-Login Event #100 → progress = 100, status = completed
-```
+#### Migration Example: Daily Goal
 
-**Config Example (Daily Increment):**
-```json
-{
-  "id": "login-7-days",
-  "type": "increment",
-  "daily": true,
-  "requirement": {
-    "stat_code": "login_count",
-    "operator": ">=",
-    "target_value": 7
-  }
-}
-```
-
-**Event Flow (Daily):**
-```
-Day 1, Login #1 (10:00 AM) → progress = 1
-Day 1, Login #2 (2:00 PM)  → progress = 1 (same day, no increment)
-Day 2, Login #1 (9:00 AM)  → progress = 2 (new day, increment)
-Day 3, Login #1 (11:00 AM) → progress = 3
-...
-Day 7, Login #1 → progress = 7, status = completed
-```
-
-**Buffering:**
-- Regular increment: Multiple increments buffered and accumulated
-  - Example: 3 logins in buffer → single DB query: `UPDATE ... SET progress = progress + 3`
-- Daily increment: Client-side date checking prevents same-day duplicates
-  - Example: 3 logins same day in buffer → only first one increments
-  - Uses `updated_at` to track last increment date
-
----
-
-#### Daily (`"daily"`)
-**Usage:** Check if event occurred today (e.g., daily login reward).
-
-**Behavior:**
-- Stores last event timestamp in `completed_at`
-- Claim checks if `completed_at` date equals today
-- Progress value not used (or can be used for other purposes)
-
-**Config Example:**
-```json
-{
-  "id": "daily-login",
-  "type": "daily",
-  "requirement": {
-    "stat_code": "login_daily",
-    "operator": ">=",
-    "target_value": 1
-  }
-}
-```
-
-**Event Flow:**
-```
-Login Event (10:00 AM) → completed_at = 2025-10-17 10:00:00, status = completed
-Login Event (2:00 PM)  → completed_at = 2025-10-17 14:00:00, status = completed
-Claim (same day)       → SUCCESS (completed_at date == today)
-Claim (next day)       → ERROR: NotLoggedInToday
-```
-
----
-
-### Goal Type Decision Matrix
-
-| Goal Type | Daily Flag | Progress Tracking | Claim Validation | Use Case |
-|-----------|-----------|------------------|------------------|----------|
-| `absolute` | N/A (ignored) | Latest stat value | `progress >= target` | Kills, level, score |
-| `increment` | `false` (default) | Count every occurrence | `progress >= target` | Total login count, total matches |
-| `increment` | `true` | Count once per day | `progress >= target` | Login 7 days, daily quest streak |
-| `daily` | N/A (ignored) | Last event timestamp | `completed_at == today` | Daily login rewards (claim once/day) |
-
----
-
-### Daily vs Daily Increment: Key Differences
-
-**IMPORTANT:** Daily type and Increment type with `daily: true` are **different goal types** with distinct behaviors.
-
-#### When to Use Daily Type (`type: "daily"`)
-
-**Use Case:** Reward user for event occurrence on a single day (repeats daily)
-
-**Examples:**
-- "Daily Login Bonus" - get reward for logging in today
-- "Daily Quest Completion" - complete quest, claim reward today, repeat tomorrow
-- "Daily Free Spin" - spin wheel once per day
-
-**Characteristics:**
-- ✅ Progress is binary: completed today (1) or not (0)
-- ✅ Target value is always 1
-- ✅ Resets each day (tracked via `completed_at` timestamp)
-- ✅ Must claim reward same day (expires at midnight)
-- ✅ Repeatable every day (new day = new opportunity)
-
-**Example Flow:**
-```
-Day 1:
-  10:00 AM - User logs in → status = completed, completed_at = 2025-10-17 10:00:00
-  12:00 PM - User logs in again → status still completed (no change)
-  2:00 PM - User claims reward → reward granted
-
-Day 2:
-  9:00 AM - User logs in → status = completed, completed_at = 2025-10-18 09:00:00
-  1:00 PM - User can claim again → reward granted (new day)
-```
-
----
-
-#### When to Use Increment with Daily Flag (`type: "increment", daily: true`)
-
-**Use Case:** Count number of distinct days with event occurrence (accumulates)
-
-**Examples:**
-- "Login 7 Days" - user must log in on 7 different days (not consecutive)
-- "Play 14 Days this Month" - user must play on 14 separate days
-- "Daily Quest Streak" - complete daily quest on 30 different days
-
-**Characteristics:**
-- ✅ Progress accumulates across days (1, 2, 3, ..., target)
-- ✅ Target value can be any number (7, 14, 30, etc.)
-- ✅ Never resets (accumulates until goal completed)
-- ✅ Claim reward once after reaching target (not daily)
-- ✅ Multiple events same day only count once
-
-**Example Flow:**
-```
-Day 1:
-  10:00 AM - User logs in → progress = 1
-  12:00 PM - User logs in again → progress = 1 (same day, no increment)
-
-Day 2:
-  9:00 AM - User logs in → progress = 2 (new day)
-
-Day 3:
-  (User doesn't log in) → progress = 2 (no change)
-
-Day 4:
-  8:00 AM - User logs in → progress = 3
-
-... (continues until progress = 7)
-
-Day 10:
-  User has progress = 7 → status = completed → user claims reward ONCE
-```
-
----
-
-#### Comparison Table
-
-| Aspect | Daily Type | Increment with Daily Flag |
-|--------|-----------|---------------------------|
-| **Purpose** | Daily repeatable reward | Count distinct days |
-| **Progress Range** | 0 or 1 | 0 to target_value |
-| **Target Value** | Always 1 | Any number (7, 14, 30+) |
-| **Resets** | Daily (every midnight) | Never (accumulates) |
-| **Claim Frequency** | Once per day | Once after reaching target |
-| **Same-Day Events** | Overwrites timestamp | Ignored (no double count) |
-| **Reward Window** | Must claim same day | Claim anytime after completion |
-| **Database Field** | Uses `completed_at` timestamp | Uses `progress` counter + `updated_at` |
-| **Buffer Method** | `UpdateProgress()` | `IncrementProgress(isDailyIncrement=true)` |
-| **Typical Use Case** | Daily login bonus, daily spin | Login 7 days challenge, monthly activity |
-
----
-
-#### Config Examples Side-by-Side
-
-**Daily Type (Repeatable):**
+**Before (old format):**
 ```json
 {
   "id": "daily-login-bonus",
-  "name": "Daily Login Bonus",
   "type": "daily",
+  "event_source": "login",
+  "daily": true,
   "requirement": {
     "stat_code": "login_daily",
     "operator": ">=",
     "target_value": 1
-  },
-  "reward": {
-    "type": "WALLET",
-    "reward_id": "GOLD",
-    "quantity": 50
   }
 }
 ```
 
-**Increment with Daily Flag (Accumulative):**
+**After (new format):**
 ```json
 {
-  "id": "login-7-days-challenge",
-  "name": "Weekly Warrior",
-  "type": "increment",
-  "daily": true,
+  "goalId": "daily-login-bonus",
+  "eventSource": "login",
   "requirement": {
-    "stat_code": "login_count",
+    "statCode": "login_daily",
     "operator": ">=",
-    "target_value": 7
+    "targetValue": 1,
+    "progressMode": "relative"
   },
-  "reward": {
-    "type": "ITEM",
-    "reward_id": "loyalty_badge",
-    "quantity": 1
+  "rotation": {
+    "enabled": true,
+    "type": "global",
+    "schedule": "daily",
+    "onExpiry": {
+      "resetProgress": true,
+      "allowReselection": true
+    }
   }
 }
 ```
 
-**Key Takeaway:**
-- Use **daily type** for "do this once a day, every day" (repeating reward)
-- Use **increment with daily flag** for "do this X different days total" (one-time reward)
+#### Removed Fields
+
+The following fields no longer exist in the config schema:
+- **`type`** on goal object: Replaced by `progressMode` on the `requirement` object.
+- **`daily`** on goal object: Replaced by the `rotation` block with `schedule: "daily"`.
 
 ---
 
-### Type Inference (Default)
+### Default Progress Mode
 
-If `"type"` field is omitted, it defaults to `"absolute"` (backward compatible).
+If `progressMode` is omitted from the requirement, it defaults to `"absolute"`.
 
 ```json
 {
-  "id": "kill-100-enemies",
-  // "type": "absolute" is implicit
-  "requirement": { "stat_code": "kills", "target_value": 100 }
+  "goalId": "kill-100-enemies",
+  "requirement": {
+    "statCode": "kills",
+    "operator": ">=",
+    "targetValue": 100
+  }
 }
 ```
+
+This is equivalent to explicitly setting `"progressMode": "absolute"`.
 
 ### Example Config
 
@@ -491,63 +617,63 @@ If `"type"` field is omitted, it defaults to `"absolute"` (backward compatible).
 {
   "challenges": [
     {
-      "id": "winter-challenge-2025",
+      "challengeId": "winter-challenge-2025",
       "name": "Winter Challenge",
       "description": "Complete winter-themed goals to earn exclusive rewards",
       "goals": [
         {
-          "id": "complete-tutorial",
+          "goalId": "complete-tutorial",
           "name": "Tutorial Master",
           "description": "Complete the game tutorial",
-          "type": "absolute",
-          "event_source": "statistic",
-          "default_assigned": true,
+          "eventSource": "statistic",
+          "defaultAssigned": true,
           "requirement": {
-            "stat_code": "tutorial_completed",
+            "statCode": "tutorial_completed",
             "operator": ">=",
-            "target_value": 1
+            "targetValue": 1,
+            "progressMode": "absolute"
           },
           "reward": {
             "type": "WALLET",
-            "reward_id": "GOLD",
+            "rewardId": "GOLD",
             "quantity": 50
           },
           "prerequisites": []
         },
         {
-          "id": "kill-10-snowmen",
+          "goalId": "kill-10-snowmen",
           "name": "Snowman Slayer",
           "description": "Defeat 10 snowmen in the frozen forest",
-          "type": "absolute",
-          "event_source": "statistic",
-          "default_assigned": false,
+          "eventSource": "statistic",
+          "defaultAssigned": false,
           "requirement": {
-            "stat_code": "snowman_kills",
+            "statCode": "snowman_kills",
             "operator": ">=",
-            "target_value": 10
+            "targetValue": 10,
+            "progressMode": "absolute"
           },
           "reward": {
             "type": "ITEM",
-            "reward_id": "winter_sword",
+            "rewardId": "winter_sword",
             "quantity": 1
           },
           "prerequisites": ["complete-tutorial"]
         },
         {
-          "id": "reach-level-5",
+          "goalId": "reach-level-5",
           "name": "Level Up",
           "description": "Reach character level 5",
-          "type": "absolute",
-          "event_source": "statistic",
-          "default_assigned": false,
+          "eventSource": "statistic",
+          "defaultAssigned": false,
           "requirement": {
-            "stat_code": "player_level",
+            "statCode": "player_level",
             "operator": ">=",
-            "target_value": 5
+            "targetValue": 5,
+            "progressMode": "absolute"
           },
           "reward": {
             "type": "WALLET",
-            "reward_id": "GOLD",
+            "rewardId": "GOLD",
             "quantity": 100
           },
           "prerequisites": ["kill-10-snowmen"]
@@ -555,64 +681,81 @@ If `"type"` field is omitted, it defaults to `"absolute"` (backward compatible).
       ]
     },
     {
-      "id": "daily-quests",
+      "challengeId": "daily-quests",
       "name": "Daily Quests",
       "description": "Complete daily objectives for rewards",
       "goals": [
         {
-          "id": "daily-login",
+          "goalId": "daily-login",
           "name": "Daily Login",
           "description": "Log in to the game today",
-          "type": "daily",
-          "event_source": "login",
-          "default_assigned": true,
+          "eventSource": "login",
+          "defaultAssigned": true,
           "requirement": {
-            "stat_code": "login_daily",
+            "statCode": "login_daily",
             "operator": ">=",
-            "target_value": 1
+            "targetValue": 1,
+            "progressMode": "relative"
           },
           "reward": {
             "type": "WALLET",
-            "reward_id": "GOLD",
+            "rewardId": "GOLD",
             "quantity": 10
           },
-          "prerequisites": []
+          "prerequisites": [],
+          "rotation": {
+            "enabled": true,
+            "type": "global",
+            "schedule": "daily",
+            "onExpiry": {
+              "resetProgress": true,
+              "allowReselection": true
+            }
+          }
         },
         {
-          "id": "login-7-days",
-          "name": "Weekly Warrior",
-          "description": "Log in on 7 different days",
-          "type": "increment",
-          "event_source": "login",
-          "daily": true,
-          "default_assigned": false,
+          "goalId": "weekly-wins",
+          "name": "Weekly Victor",
+          "description": "Win 10 matches this week",
+          "eventSource": "statistic",
+          "defaultAssigned": false,
           "requirement": {
-            "stat_code": "login_count",
+            "statCode": "matches_won",
             "operator": ">=",
-            "target_value": 7
+            "targetValue": 10,
+            "progressMode": "relative"
           },
           "reward": {
             "type": "ITEM",
-            "reward_id": "loyalty_badge",
+            "rewardId": "weekly_chest",
             "quantity": 1
           },
-          "prerequisites": []
+          "prerequisites": [],
+          "rotation": {
+            "enabled": true,
+            "type": "global",
+            "schedule": "weekly",
+            "onExpiry": {
+              "resetProgress": true,
+              "allowReselection": true
+            }
+          }
         },
         {
-          "id": "play-3-matches",
+          "goalId": "play-3-matches",
           "name": "Match Veteran",
-          "description": "Complete 3 matches (total)",
-          "type": "absolute",
-          "event_source": "statistic",
-          "default_assigned": false,
+          "description": "Complete 3 matches (total, lifetime)",
+          "eventSource": "statistic",
+          "defaultAssigned": false,
           "requirement": {
-            "stat_code": "matches_played",
+            "statCode": "matches_played",
             "operator": ">=",
-            "target_value": 3
+            "targetValue": 3,
+            "progressMode": "absolute"
           },
           "reward": {
             "type": "ITEM",
-            "reward_id": "daily_chest",
+            "rewardId": "daily_chest",
             "quantity": 1
           },
           "prerequisites": ["daily-login"]
@@ -625,7 +768,7 @@ If `"type"` field is omitted, it defaults to `"absolute"` (backward compatible).
 
 ### Event Sources
 
-**New in Phase 5.2.3**: Goals must specify which event source triggers progress updates.
+Goals must specify which event source triggers progress updates.
 
 #### Supported Event Sources
 
@@ -646,13 +789,22 @@ If `"type"` field is omitted, it defaults to `"absolute"` (backward compatible).
 **Login Event Goal:**
 ```json
 {
-  "id": "daily-login",
-  "type": "daily",
-  "event_source": "login",
+  "goalId": "daily-login",
+  "eventSource": "login",
   "requirement": {
-    "stat_code": "login_daily",
+    "statCode": "login_daily",
     "operator": ">=",
-    "target_value": 1
+    "targetValue": 1,
+    "progressMode": "relative"
+  },
+  "rotation": {
+    "enabled": true,
+    "type": "global",
+    "schedule": "daily",
+    "onExpiry": {
+      "resetProgress": true,
+      "allowReselection": true
+    }
   }
 }
 ```
@@ -660,13 +812,13 @@ If `"type"` field is omitted, it defaults to `"absolute"` (backward compatible).
 **Statistic Event Goal:**
 ```json
 {
-  "id": "kill-100-enemies",
-  "type": "absolute",
-  "event_source": "statistic",
+  "goalId": "kill-100-enemies",
+  "eventSource": "statistic",
   "requirement": {
-    "stat_code": "kills",
+    "statCode": "kills",
     "operator": ">=",
-    "target_value": 100
+    "targetValue": 100,
+    "progressMode": "absolute"
   }
 }
 ```
@@ -677,13 +829,17 @@ If `"type"` field is omitted, it defaults to `"absolute"` (backward compatible).
 
 1. **Challenge IDs**: Must be unique across all challenges
 2. **Goal IDs**: Must be globally unique (not just within challenge)
-3. **Goal Types**: Must be one of `"absolute"`, `"increment"`, or `"daily"` (defaults to `"absolute"` if omitted)
+3. **Progress Mode**: Must be `"absolute"` or `"relative"` (defaults to `"absolute"` if omitted)
 4. **Event Sources**: Must be one of `"login"` or `"statistic"` (required field, no default)
-5. **Daily Flag**: Only valid for `"increment"` type (defaults to `false` if omitted)
+5. **Rotation Block**: Optional. When present, the following rules apply:
+   - `type` must be `"global"` (only supported value in M5)
+   - `schedule` must be `"daily"`, `"weekly"`, or `"monthly"`
+   - Rotation requires `progressMode: "relative"` on the requirement (error if `absolute`)
+   - All `onExpiry` fields (`resetProgress`, `allowReselection`) are required when rotation is present
 6. **Default Assigned** (M3): Boolean flag (defaults to `false` if omitted)
    - Controls whether goal is assigned to new players during initialization
    - Typically set to `true` for 5-10 beginner/tutorial goals out of 500+ total goals
-   - Goals with `default_assigned = false` are created lazily when user activates them
+   - Goals with `defaultAssigned = false` are created lazily when user activates them
    - See [TECH_SPEC_M3.md](./TECH_SPEC_M3.md) for lazy materialization details
 7. **Stat Codes**: Match event payload field names exactly
 8. **Operator**: Only `">="` supported in M1
@@ -783,7 +939,7 @@ func (l *ConfigLoader) countGoals(config *Config) int {
 
 type InMemoryGoalCache struct {
     goalsByID       map[string]*domain.Goal           // "goal-id" -> Goal
-    goalsByStatCode map[string][]*domain.Goal         // "stat_code" -> [Goals]
+    goalsByStatCode map[string][]*domain.Goal         // "statCode" -> [Goals]
     challengesByID  map[string]*domain.Challenge      // "challenge-id" -> Challenge
     challenges      []*domain.Challenge               // All challenges
     mu              sync.RWMutex
@@ -985,39 +1141,50 @@ func (v *Validator) validateGoal(goal *domain.Goal) error {
         return errors.New("goal name cannot be empty")
     }
 
-    // Validate goal type (default to "absolute" if empty)
-    if goal.Type == "" {
-        goal.Type = domain.GoalTypeAbsolute
-    }
-    if goal.Type != domain.GoalTypeAbsolute &&
-       goal.Type != domain.GoalTypeIncrement &&
-       goal.Type != domain.GoalTypeDaily {
-        return fmt.Errorf("unsupported goal type '%s' (must be 'absolute', 'increment', or 'daily')", goal.Type)
-    }
-
     // Validate event source (required field, no default)
     if goal.EventSource == "" {
-        return errors.New("event_source cannot be empty")
+        return errors.New("eventSource cannot be empty")
     }
     if goal.EventSource != domain.EventSourceLogin &&
        goal.EventSource != domain.EventSourceStatistic {
-        return fmt.Errorf("unsupported event_source '%s' (must be 'login' or 'statistic')", goal.EventSource)
+        return fmt.Errorf("unsupported eventSource '%s' (must be 'login' or 'statistic')", goal.EventSource)
     }
 
-    // Validate daily flag (only valid for increment type)
-    if goal.Daily && goal.Type != domain.GoalTypeIncrement {
-        return errors.New("daily flag can only be true for increment-type goals")
+    // Validate progress mode (default to "absolute" if empty)
+    if goal.Requirement.ProgressMode == "" {
+        goal.Requirement.ProgressMode = domain.ProgressModeAbsolute
+    }
+    if goal.Requirement.ProgressMode != domain.ProgressModeAbsolute &&
+       goal.Requirement.ProgressMode != domain.ProgressModeRelative {
+        return fmt.Errorf("unsupported progressMode '%s' (must be 'absolute' or 'relative')",
+            goal.Requirement.ProgressMode)
+    }
+
+    // Validate rotation block (if present)
+    if goal.Rotation != nil {
+        if goal.Requirement.ProgressMode != domain.ProgressModeRelative {
+            return errors.New("rotation requires progressMode 'relative'")
+        }
+        if goal.Rotation.Type != "global" {
+            return fmt.Errorf("unsupported rotation type '%s' (must be 'global')", goal.Rotation.Type)
+        }
+        if goal.Rotation.Schedule != "daily" &&
+           goal.Rotation.Schedule != "weekly" &&
+           goal.Rotation.Schedule != "monthly" {
+            return fmt.Errorf("unsupported rotation schedule '%s' (must be 'daily', 'weekly', or 'monthly')",
+                goal.Rotation.Schedule)
+        }
     }
 
     // Validate requirement
     if goal.Requirement.StatCode == "" {
-        return errors.New("stat_code cannot be empty")
+        return errors.New("statCode cannot be empty")
     }
     if goal.Requirement.Operator != ">=" {
         return fmt.Errorf("unsupported operator '%s' (only '>=' supported)", goal.Requirement.Operator)
     }
     if goal.Requirement.TargetValue <= 0 {
-        return errors.New("target_value must be positive")
+        return errors.New("targetValue must be positive")
     }
 
     // Validate reward
@@ -1025,7 +1192,7 @@ func (v *Validator) validateGoal(goal *domain.Goal) error {
         return fmt.Errorf("unsupported reward type '%s' (only 'ITEM' or 'WALLET' allowed)", goal.Reward.Type)
     }
     if goal.Reward.RewardID == "" {
-        return errors.New("reward_id cannot be empty")
+        return errors.New("rewardId cannot be empty")
     }
     if goal.Reward.Quantity <= 0 {
         return errors.New("reward quantity must be positive")
@@ -1064,7 +1231,7 @@ func main() {
 
 ### Lazy Materialization Performance Optimization
 
-**M3 Phase 9 Implementation:** The system uses **lazy materialization** to optimize player initialization performance. Instead of creating database rows for ALL goals (which could be 500+ goals), it only creates rows for goals marked with `default_assigned = true`.
+**M3 Phase 9 Implementation:** The system uses **lazy materialization** to optimize player initialization performance. Instead of creating database rows for ALL goals (which could be 500+ goals), it only creates rows for goals marked with `defaultAssigned = true`.
 
 **Performance Benefits:**
 - **50x reduction** in database rows during player initialization
@@ -1074,13 +1241,13 @@ func main() {
 
 **How It Works:**
 
-1. **Default-assigned goals** (`default_assigned = true`):
+1. **Default-assigned goals** (`defaultAssigned = true`):
    - Created during `/initialize` endpoint on first login
    - Set with `is_active = true` immediately
    - Receive event updates from event processor
    - Typically 5-10 beginner/tutorial goals
 
-2. **Non-default goals** (`default_assigned = false`):
+2. **Non-default goals** (`defaultAssigned = false`):
    - NOT created during initialization
    - Created later when user manually activates them via `SetGoalActive()` endpoint
    - Receive event updates only after activation
@@ -1094,7 +1261,7 @@ func main() {
 
 ### Recommended Distribution
 
-| Goal Category | `default_assigned` Value | Quantity | Purpose |
+| Goal Category | `defaultAssigned` Value | Quantity | Purpose |
 |---------------|-------------------------|----------|---------|
 | Tutorial goals | `true` | 3-5 | New player onboarding |
 | Beginner goals | `true` | 2-5 | First progression steps |
@@ -1145,7 +1312,7 @@ func main() {
 }
 ```
 
-**Key Insight:** Set `default_assigned = true` only for the minimal set of goals that ALL new players should start with. This maximizes performance while maintaining good UX.
+**Key Insight:** Set `defaultAssigned = true` only for the minimal set of goals that ALL new players should start with. This maximizes performance while maintaining good UX.
 
 ---
 
@@ -1156,16 +1323,16 @@ func main() {
 **Before:**
 ```json
 {
-  "id": "kill-10-snowmen",
-  "requirement": { "stat_code": "snowman_kills", "target_value": 10 }
+  "goalId": "kill-10-snowmen",
+  "requirement": { "statCode": "snowman_kills", "targetValue": 10, "progressMode": "absolute" }
 }
 ```
 
 **After:**
 ```json
 {
-  "id": "kill-10-snowmen",
-  "requirement": { "stat_code": "snowman_kills", "target_value": 20 }
+  "goalId": "kill-10-snowmen",
+  "requirement": { "statCode": "snowman_kills", "targetValue": 20, "progressMode": "absolute" }
 }
 ```
 
@@ -1174,9 +1341,9 @@ func main() {
 **API Response:**
 ```json
 {
-  "goal_id": "kill-10-snowmen",
+  "goalId": "kill-10-snowmen",
   "progress": 15,
-  "requirement": { "target_value": 20 },
+  "requirement": { "targetValue": 20 },
   "status": "in_progress"
 }
 ```

@@ -1,7 +1,7 @@
 # AccelByte Extend Challenge Service - Documentation Index
 
-**Version**: M3 (Milestone 3 Complete)
-**Last Updated**: 2025-11-10
+**Version**: M5 (Milestone 5 In Progress)
+**Last Updated**: 2026-02-27
 
 This document serves as the primary navigation guide for all technical documentation in the AccelByte Extend Challenge Service platform.
 
@@ -58,11 +58,21 @@ Milestone 3 introduces time-based challenges, schedules, and rotation.
 
 ## Technical Specifications (M4 Batch & Random Selection)
 
-Milestone 4 adds flexible goal selection patterns (planning complete).
+Milestone 4 adds flexible goal selection patterns.
 
 | Document | Description | Key Topics |
 |----------|-------------|------------|
 | [**TECH_SPEC_M4.md**](TECH_SPEC_M4.md) | M4 feature specification | Batch manual selection, random selection, BatchUpsertGoalActive |
+
+---
+
+## Technical Specifications (M5 Time-Based Rotation)
+
+Milestone 5 adds time-based goal rotation with ProgressMode and rotation configuration.
+
+| Document | Description | Key Topics |
+|----------|-------------|------------|
+| [**TECH_SPEC_M5.md**](TECH_SPEC_M5.md) | M5 feature specification | ProgressMode (absolute/relative), rotation config, SQL CASE rotation, baseline_value, expires_at |
 
 ---
 
@@ -205,6 +215,7 @@ Product requirements and demo app guides.
 - **M2**: [M2](TECH_SPEC_M2.md), [M2 Optimization](TECH_SPEC_M2_OPTIMIZATION.md)
 - **M3**: [M3](TECH_SPEC_M3.md)
 - **M4**: [M4](TECH_SPEC_M4.md)
+- **M5**: [M5](TECH_SPEC_M5.md)
 - **Cross-cutting**: [Observability](TECH_SPEC_OBSERVABILITY.md), [Template Architecture](TECH_SPEC_TEMPLATE_ARCHITECTURE.md), [Database Partitioning](TECH_SPEC_DATABASE_PARTITIONING.md)
 
 ### Design Documents

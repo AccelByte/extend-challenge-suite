@@ -52,6 +52,10 @@ CREATE TABLE user_goal_progress (
     status VARCHAR(20) NOT NULL DEFAULT 'not_started',
     completed_at TIMESTAMP NULL,
     claimed_at TIMESTAMP NULL,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    assigned_at TIMESTAMP NULL,
+    expires_at TIMESTAMP NULL,
+    baseline_value INT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 
@@ -70,9 +74,10 @@ CREATE TABLE user_goal_progress (
 
 ### Backend Service (M1 Scope)
 
-- `GET /v1/challenges` - List all challenges with user's progress
+- `GET /v1/challenges` - List all challenges with user's progress (includes `expiresAt`, `expiresInSeconds` for rotating goals)
 - `GET /v1/challenges/{challenge_id}` - Get specific challenge with user's progress
 - `POST /v1/challenges/{challenge_id}/goals/{goal_id}/claim` - Claim reward for completed goal
+- `GET /v1/challenges/{challenge_id}/rotation` - Get rotation schedule and current period info (M5)
 - `GET /healthz` - Liveness probe
 
 All endpoints require AGS IAM Bearer token authentication (JWT validation).

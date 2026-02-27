@@ -61,8 +61,7 @@ log.Error("Failed to process event",
 **Buffer Flush:**
 ```go
 log.Info("Buffer flushed",
-    "absoluteGoalsCount", len(absoluteBuffer),
-    "incrementGoalsCount", len(incrementBuffer),
+    "eventsCount", len(buffer),
     "duration", elapsed.Milliseconds(),
 )
 
@@ -174,20 +173,19 @@ challengeBufferFlushDuration := prometheus.NewHistogramVec(
         Help:    "Duration of buffer flush in seconds",
         Buckets: []float64{0.001, 0.005, 0.01, 0.02, 0.05, 0.1, 0.5, 1}, // More granular for DB operations
     },
-    []string{"buffer_type", "status"}, // buffer_type: "absolute" | "increment", status: "success" | "error"
+    []string{"progress_mode", "status"}, // progress_mode: "absolute" | "relative", status: "success" | "error"
 )
 
 // Buffer size at flush time (gauge)
-challengeBufferSize := prometheus.NewGaugeVec(
+challengeBufferSize := prometheus.NewGauge(
     prometheus.GaugeOpts{
         Name: "challenge_buffer_size",
-        Help: "Number of items in buffer at flush time",
+        Help: "Number of items in unified buffer at flush time",
     },
-    []string{"buffer_type"}, // buffer_type: "absolute" | "increment"
 )
 
 // Usage:
-challengeBufferSize.WithLabelValues("absolute").Set(float64(len(absoluteBuffer)))
+challengeBufferSize.Set(float64(len(buffer)))
 start := time.Now()
 // ... flush buffer ...
 challengeBufferFlushDuration.WithLabelValues(

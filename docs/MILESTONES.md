@@ -22,8 +22,8 @@ This document outlines the progressive feature rollout for the Challenge Service
 - **Milestone 1**: ✅ Complete (Foundation implemented and deployed)
 - **Milestone 2**: ✅ Complete (Performance validated, optimizations implemented)
 - **Milestone 3**: ✅ Complete (Goal assignment control with performance optimization)
-- **Milestone 4**: 📋 Planned (Random inactive goal activation)
-- **Milestone 5**: 📋 Planned (Auto rotation daily/weekly/monthly)
+- **Milestone 4**: ✅ Complete (Batch & random goal selection)
+- **Milestone 5**: 🟡 In Progress (Time-based rotation with ProgressMode)
 - **Backlog**: 5 feature sets for future development
 
 ---
@@ -593,8 +593,8 @@ See [M3_LOADTEST_RESULTS.md](./M3_LOADTEST_RESULTS.md) for comprehensive testing
 
 ## Milestone 4: Batch & Random Goal Selection
 
-**Status:** 📋 Planning Complete - Ready for Implementation
-**Planning Completed:** 2025-11-17
+**Status:** ✅ Complete
+**Completed:** 2026-01-15
 **Target Demo:** Flexible goal selection - batch manual + random selection patterns
 **Dependencies:** M3 complete
 **Technical Spec:** [TECH_SPEC_M4.md](./TECH_SPEC_M4.md)
@@ -762,9 +762,10 @@ Player clicks checkbox on "Daily Login" goal
 
 ## Milestone 5: Time-Based Rotation (Global + Per-User)
 
-**Status:** 📋 Planned
-**Target Demo:** Automatic goal rotation with global (server-time) and per-user (independent) timers
+**Status:** 🟡 In Progress (Phases 0.5–7 complete, Phase 8 documentation underway)
+**Target Demo:** Automatic goal rotation with global (server-time) schedules (daily/weekly/monthly)
 **Dependencies:** M3, M4 complete
+**Technical Spec:** [TECH_SPEC_M5.md](./TECH_SPEC_M5.md)
 
 ### Overview
 
