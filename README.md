@@ -158,7 +158,7 @@ go run main.go challenges claim daily-quests daily-login
 
 ### 6. Run End-to-End Tests
 
-**Mock mode** (default): No prerequisites needed - just run the tests.
+**Mock mode** (default): No AGS credentials needed — tests use mock authentication.
 
 **Real AGS mode**: Before running E2E tests with real authentication, you must create required AGS items in your namespace. Follow [AGS_SETUP_GUIDE.md](AGS_SETUP_GUIDE.md) Step 4 to create:
 - Items: `winter_sword`, `loyalty_badge`, `daily_chest` (INGAMEITEM, entitleable, active)

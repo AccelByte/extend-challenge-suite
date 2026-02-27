@@ -1,5 +1,11 @@
 # E2E Tests - Quick Start Guide
 
+## Prerequisites
+
+- Docker services running: `make dev-up` (from project root)
+- Demo app built: `make build-demo-app`
+- `jq` installed: `apt install jq` or `brew install jq`
+
 ## TL;DR
 
 ```bash
@@ -19,7 +25,7 @@ set -a && source .env && set +a && ./run-all-tests.sh
 
 **Use when:** Testing locally against local services
 
-**Setup:** None required!
+**Setup:** Start services and build demo app (see Prerequisites above). No AGS credentials needed.
 
 **First time or after code changes:**
 ```bash

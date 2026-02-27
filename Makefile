@@ -43,6 +43,41 @@ help:
 	@echo ""
 	@echo "Note: All test targets automatically load tests/e2e/.env if present"
 
+.PHONY: test-e2e-help
+test-e2e-help:
+	@echo "E2E Test Targets:"
+	@echo ""
+	@echo "  make test-e2e              Run all 19 E2E tests"
+	@echo ""
+	@echo "  Happy Path:"
+	@echo "    make test-e2e-login      Login flow"
+	@echo "    make test-e2e-stat       Stat update flow"
+	@echo "    make test-e2e-daily      Daily goal behavior"
+	@echo "    make test-e2e-buffering  Performance & buffering"
+	@echo "    make test-e2e-prereqs    Prerequisites"
+	@echo "    make test-e2e-mixed      Mixed goal types"
+	@echo ""
+	@echo "  M3 Features:"
+	@echo "    make test-e2e-m3-init    Player initialization"
+	@echo "    make test-e2e-inactive   Inactive goal filtering"
+	@echo ""
+	@echo "  M4 Features:"
+	@echo "    make test-e2e-m4-batch   Batch goal selection"
+	@echo "    make test-e2e-m4-random  Random goal selection"
+	@echo ""
+	@echo "  M5 Rotation:"
+	@echo "    make test-e2e-m5-rotation-basic    Basic rotation"
+	@echo "    make test-e2e-m5-rotation-reset    Progress reset"
+	@echo "    make test-e2e-m5-rotation-no-reset No reset"
+	@echo "    make test-e2e-m5-rotation-claimed  Claimed goals"
+	@echo "    make test-e2e-m5-rotation-status   Status endpoint"
+	@echo "    make test-e2e-m5-rotation-expiry   Expiry fields"
+	@echo ""
+	@echo "  Error Scenarios:"
+	@echo "    make test-e2e-errors     Error scenarios"
+	@echo "    make test-e2e-rewards    Reward failures"
+	@echo "    make test-e2e-multiuser  Multi-user isolation"
+
 .PHONY: setup
 setup:
 	@echo "Cloning service repositories..."
@@ -140,7 +175,8 @@ test-e2e:
 		echo "Loading environment from tests/e2e/.env..."; \
 		cd tests/e2e && set -a && . ./.env && set +a && ./run-all-tests.sh; \
 	else \
-		echo "⚠️  Warning: tests/e2e/.env not found. Copy from .env.example and configure credentials."; \
+		echo "ℹ️  No .env found — running in mock mode (no credentials needed)."; \
+		echo "   For real AGS testing: cp tests/e2e/.env.example tests/e2e/.env"; \
 		cd tests/e2e && ./run-all-tests.sh; \
 	fi
 
