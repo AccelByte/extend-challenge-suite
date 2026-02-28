@@ -1,0 +1,15 @@
+# Override file for load testing
+# Mounts loadtest fixture into containers WITHOUT modifying E2E config files
+#
+# Usage:
+#   docker-compose -f docker-compose.yml -f docker-compose.loadtest.yml up -d
+#   Or: make dev-up-loadtest
+
+services:
+  challenge-service:
+    volumes:
+      - ./tests/loadtest/fixtures/challenges.json:/app/config/challenges.json:ro
+
+  challenge-event-handler:
+    volumes:
+      - ./tests/loadtest/fixtures/challenges.json:/app/config/challenges.json:ro

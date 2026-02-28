@@ -69,6 +69,7 @@ export let options = {
     'http_req_duration{endpoint:browse_challenges}': ['p(95)<500'],
     'http_req_duration{endpoint:check_progress}': ['p(95)<500'],
     'http_req_duration{endpoint:claim}': ['p(95)<100'],
+    'http_req_duration{endpoint:rotation_status}': ['p(95)<100'],
 
     // Event processing
     'grpc_req_duration': ['p(95)<500'],
@@ -95,11 +96,13 @@ export function userSession() {
   sleep(randomBetween(2, 4));
 
   // === STEP 3: Select Goals (M4 - NEW) ===
+  // 50% rotation challenges, 50% regular challenges
+  const selectChallengeId = Math.random() < 0.5 ? 'daily-challenges' : CHALLENGE_ID;
   // 60% prefer random "surprise me", 40% manual selection
   if (Math.random() < 0.6) {
-    randomSelectGoals(user, token);
+    randomSelectGoals(user, token, selectChallengeId);
   } else {
-    batchSelectGoals(user, token);
+    batchSelectGoals(user, token, selectChallengeId);
   }
   sleep(randomBetween(3, 5));
 
@@ -110,6 +113,10 @@ export function userSession() {
   // === STEP 5: Check Progress ===
   getSpecificChallenge(user, token);
   sleep(randomBetween(2, 3));
+
+  // === STEP 5.5: Check Rotation Status (for rotation challenges) ===
+  getRotationStatus(user, token);
+  sleep(randomBetween(1, 2));
 
   // === STEP 6: Claim Reward (if goal completed) ===
   // Not every session completes a goal (30% completion rate)
@@ -177,6 +184,35 @@ function getSpecificChallenge(user, token) {
       const body = r.json();
       return body.challenges && body.challenges.some(c => c.challengeId === CHALLENGE_ID);
     },
+    'Progress: rotation goals have expiresAt': (r) => {
+      const body = r.json();
+      const rotationChallenge = body.challenges.find(c => c.challengeId === 'daily-challenges');
+      if (!rotationChallenge || !rotationChallenge.goals) return true; // skip if not present
+      return rotationChallenge.goals.some(g => g.expiresAt && g.expiresAt.length > 0);
+    },
+  });
+}
+
+function getRotationStatus(user, token) {
+  const challengeId = Math.random() < 0.5 ? 'daily-challenges' : 'weekly-challenges';
+  const resp = http.get(
+    `${BASE_URL}/v1/challenges/${challengeId}/rotation`,
+    {
+      headers: createHeaders(user, token),
+      tags: { endpoint: 'rotation_status' },
+    }
+  );
+
+  check(resp, {
+    'Rotation: status 200': (r) => r.status === 200,
+    'Rotation: has enabled field': (r) => {
+      const body = r.json();
+      return body.rotation && body.rotation.enabled === true;
+    },
+    'Rotation: has current_period': (r) => {
+      const body = r.json();
+      return body.rotation && body.rotation.currentPeriod && body.rotation.currentPeriod.expiresInSeconds > 0;
+    },
   });
 }
 
@@ -184,13 +220,12 @@ function getSpecificChallenge(user, token) {
 // M4 ENDPOINTS - Batch and Random Selection
 // ============================================================================
 
-function batchSelectGoals(user, token) {
+function batchSelectGoals(user, token, challengeId) {
   // Simulate user selecting 3 goals manually
-  const goalIds = [
-    'daily-login',
-    'daily-10-kills',
-    'daily-3-matches',
-  ];
+  const isRotation = challengeId === 'daily-challenges';
+  const goalIds = isRotation
+    ? ['daily-goal-01', 'daily-goal-02', 'daily-goal-03']
+    : ['daily-login', 'daily-10-kills', 'daily-3-matches'];
 
   const payload = JSON.stringify({
     goal_ids: goalIds,
@@ -198,7 +233,7 @@ function batchSelectGoals(user, token) {
   });
 
   const resp = http.post(
-    `${BASE_URL}/v1/challenges/${CHALLENGE_ID}/goals/batch-select`,
+    `${BASE_URL}/v1/challenges/${challengeId}/goals/batch-select`,
     payload,
     {
       headers: createHeaders(user, token),
@@ -216,7 +251,7 @@ function batchSelectGoals(user, token) {
   });
 }
 
-function randomSelectGoals(user, token) {
+function randomSelectGoals(user, token, challengeId) {
   // Simulate user clicking "Surprise Me" for 5 random goals
   const payload = JSON.stringify({
     count: 5,
@@ -225,7 +260,7 @@ function randomSelectGoals(user, token) {
   });
 
   const resp = http.post(
-    `${BASE_URL}/v1/challenges/${CHALLENGE_ID}/goals/random-select`,
+    `${BASE_URL}/v1/challenges/${challengeId}/goals/random-select`,
     payload,
     {
       headers: createHeaders(user, token),
@@ -244,11 +279,13 @@ function randomSelectGoals(user, token) {
 }
 
 function claimGoal(user, token) {
-  // Claim first goal (in real scenario, would track which goals are completed)
-  const goalId = 'daily-login';
+  // Alternate between regular and rotation challenge goals
+  const useRotation = Math.random() < 0.5;
+  const challengeId = useRotation ? 'daily-challenges' : CHALLENGE_ID;
+  const goalId = useRotation ? 'daily-goal-01' : 'daily-login';
 
   const resp = http.post(
-    `${BASE_URL}/v1/challenges/${CHALLENGE_ID}/goals/${goalId}/claim`,
+    `${BASE_URL}/v1/challenges/${challengeId}/goals/${goalId}/claim`,
     null,
     {
       headers: createHeaders(user, token),
@@ -306,6 +343,7 @@ export function eventLoad() {
       payload: {
         statCode: statCodes[Math.floor(Math.random() * statCodes.length)],
         latestValue: Math.floor(Math.random() * 1000),
+        inc: Math.floor(Math.random() * 10) + 1,  // M5: baseline computation for relative progress
       },
     };
 

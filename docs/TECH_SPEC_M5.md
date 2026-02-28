@@ -1431,38 +1431,38 @@ Update loadtest infrastructure to exercise M5 rotation: mixed absolute/relative 
 
 #### 9A: Expand Rotation Fixtures
 
-- [ ] Expand `daily-challenges` in `tests/loadtest/fixtures/challenges.json` from 2 to 50 goals (daily rotation, `progressMode: "relative"`, `allow_reselection: true`), using stat codes in the event mix: `enemy_kills`, `login_count`, `games_played`, `headshots`, `wins`
-- [ ] Expand `weekly-challenges` from 2 to 50 goals (weekly rotation, `progressMode: "relative"`, `allow_reselection: true`), with higher `target_value` than daily goals
-- [ ] Verify total fixture has ~554 goals: ~454 absolute + ~50 daily + ~50 weekly (~18% rotation)
-- [ ] Copy updated fixture to both service config directories
+- [x] Expand `daily-challenges` in `tests/loadtest/fixtures/challenges.json` from 2 to 50 goals (daily rotation, `progressMode: "relative"`, `allow_reselection: true`), using stat codes in the event mix: `enemy_kills`, `login_count`, `games_played`, `headshots`, `wins`
+- [x] Expand `weekly-challenges` from 2 to 50 goals (weekly rotation, `progressMode: "relative"`, `allow_reselection: true`), with higher `target_value` than daily goals
+- [x] Verify total fixture has ~554 goals: ~454 absolute + ~50 daily + ~50 weekly (~18% rotation)
+- [x] Verify `make dev-up-loadtest` mounts the updated fixture correctly
 
 #### 9B: Add `inc` Field to K6 Stat Events
 
-- [ ] Update `scenario3_combined.js` `eventLoad()`: add `inc: Math.floor(Math.random() * 10) + 1` to stat event `payload`
-- [ ] Update `scenario4_m4_realistic_sessions.js` `eventLoad()`: same `inc` field
-- [ ] Update `scenario2_event_load.js` `eventLoad()`: same for consistency
+- [x] Update `scenario3_combined.js` `eventLoad()`: add `inc: Math.floor(Math.random() * 10) + 1` to stat event `payload`
+- [x] Update `scenario4_m4_realistic_sessions.js` `eventLoad()`: same `inc` field
+- [x] Update `scenario2_event_load.js` `eventLoad()`: same for consistency
 
 #### 9C: Update Scenario 4 for M5 User Journeys
 
-- [ ] Add rotation status check step: `GET /v1/challenges/{challenge_id}/rotation` with tag `{endpoint: 'rotation_status'}`, validate `rotation.enabled` and `current_period.expires_in_seconds`
-- [ ] Add threshold: `'http_req_duration{endpoint:rotation_status}': ['p(95)<100']`
-- [ ] Update `getSpecificChallenge()` to validate `expires_at` presence on rotation goal responses
-- [ ] Update `claimGoal()` to use a goal ID from `daily-challenges` (claimed goals reset by rotation)
-- [ ] Update goal selection functions to alternate between regular and rotation challenges (50/50)
+- [x] Add rotation status check step: `GET /v1/challenges/{challenge_id}/rotation` with tag `{endpoint: 'rotation_status'}`, validate `rotation.enabled` and `current_period.expires_in_seconds`
+- [x] Add threshold: `'http_req_duration{endpoint:rotation_status}': ['p(95)<100']`
+- [x] Update `getSpecificChallenge()` to validate `expires_at` presence on rotation goal responses
+- [x] Update `claimGoal()` to use a goal ID from `daily-challenges` (claimed goals reset by rotation)
+- [x] Update goal selection functions to alternate between regular and rotation challenges (50/50)
 
 #### 9D: Create Scenario 5 — M5 Rotation Stress Test
 
-- [ ] Create `tests/loadtest/k6/scenario5_m5_rotation.js` with two executors:
+- [x] Create `tests/loadtest/k6/scenario5_m5_rotation.js` with two executors:
   - `rotation_api` (`per-vu-iterations`, 150 VUs, 120 iterations): rotation-focused user journey
   - `rotation_events` (`constant-arrival-rate`, 500 EPS): stat events targeting rotation goal stat codes with `inc` field
-- [ ] Implement `rotationUserSession()`: initialize → GET /challenges (validate `expires_at`) → batch-select from daily-challenges → gameplay sleep → GET rotation status → check progress → claim (30%) → session gap
-- [ ] Add M5 thresholds: `rotation_status p95 < 100ms`, `browse_challenges p95 < 500ms`
-- [ ] Add option to seed stale rows (`DB_SEED_STALE_ROWS` env var): UPDATE `updated_at` to yesterday for 40% of rotation goal rows, simulating returning users after rotation boundary
+- [x] Implement `rotationUserSession()`: initialize → GET /challenges (validate `expires_at`) → batch-select from daily-challenges → gameplay sleep → GET rotation status → check progress → claim (30%) → session gap
+- [x] Add M5 thresholds: `rotation_status p95 < 100ms`, `browse_challenges p95 < 500ms`
+- [x] Add option to seed stale rows (`DB_SEED_STALE_ROWS` env var): UPDATE `updated_at` to yesterday for 40% of rotation goal rows, simulating returning users after rotation boundary
 
 #### 9E: Smoke Test
 
-- [ ] Run `scenario3_smoke.js` (5 min) with updated config to verify `inc` field is accepted without errors
-- [ ] Verify `GET /v1/challenges` returns `expires_at` / `expires_in_seconds` for rotation goals (manual curl)
+- [x] Run `scenario3_smoke.js` (5 min) with updated config to verify `inc` field is accepted without errors
+- [x] Verify `GET /v1/challenges` returns `expires_at` / `expires_in_seconds` for rotation goals (manual curl)
 
 ### Phase 10: Run Loadtests and Generate M5 Performance Report (1.5 days)
 

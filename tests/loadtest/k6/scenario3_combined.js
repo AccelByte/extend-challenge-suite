@@ -116,6 +116,7 @@ export function eventLoad() {
       payload: {
         statCode: statCodes[Math.floor(Math.random() * statCodes.length)],
         latestValue: Math.floor(Math.random() * 1000),
+        inc: Math.floor(Math.random() * 10) + 1,  // M5: baseline computation for relative progress
       },
     };
 

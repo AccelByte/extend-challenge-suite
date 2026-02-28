@@ -12,7 +12,7 @@ const users = new SharedArray('users', function() {
   return JSON.parse(open('../fixtures/users.json'));
 });
 
-const challengesData = JSON.parse(open('../test/fixtures/challenges.json'));
+const challengesData = JSON.parse(open('../fixtures/challenges.json'));
 const challenges = challengesData.challenges;
 
 // Configuration
@@ -290,6 +290,7 @@ export function eventGameplayPhase() {
       payload: {
         statCode: statCode,
         latestValue: Math.floor(Math.random() * 1000),
+        inc: Math.floor(Math.random() * 10) + 1,  // M5: baseline computation for relative progress
       },
     };
 
