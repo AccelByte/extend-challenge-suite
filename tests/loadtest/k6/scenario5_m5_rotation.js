@@ -19,6 +19,7 @@ const TARGET_VUS = parseInt(__ENV.TARGET_VUS || '150');
 const ITERATIONS = parseInt(__ENV.ITERATIONS || '120');
 const TARGET_EPS = parseInt(__ENV.TARGET_EPS || '500');
 const NAMESPACE = __ENV.NAMESPACE || 'test';
+const ABSOLUTE_CHALLENGE_ID = 'challenge-001';
 
 // gRPC clients
 const statClient = new grpc.Client();
@@ -60,6 +61,7 @@ export let options = {
     'http_req_duration{endpoint:browse_challenges}': ['p(95)<500'],
     'http_req_duration{endpoint:initialize}': ['p(95)<100'],
     'http_req_duration{endpoint:batch_select}': ['p(95)<50'],
+    'http_req_duration{endpoint:random_select}': ['p(95)<50'],
     'http_req_duration{endpoint:check_progress}': ['p(95)<500'],
     'http_req_duration{endpoint:claim}': ['p(95)<100'],
 
@@ -90,9 +92,19 @@ export function rotationUserSession() {
   browseChallengesWithRotationChecks(user, token);
   sleep(randomBetween(2, 4));
 
-  // === STEP 3: Batch-select from rotation challenge ===
-  batchSelectRotationGoals(user, token, challengeId);
+  // === STEP 3: Select rotation goals (60% random, 40% batch) ===
+  if (Math.random() < 0.6) {
+    randomSelectRotationGoals(user, token, challengeId);
+  } else {
+    batchSelectRotationGoals(user, token, challengeId);
+  }
   sleep(randomBetween(3, 5));
+
+  // === STEP 3.5: Mixed mode - also interact with absolute challenge (30%) ===
+  if (Math.random() < 0.3) {
+    batchSelectAbsoluteGoals(user, token);
+    sleep(randomBetween(1, 2));
+  }
 
   // === STEP 4: Gameplay (simulated by sleep, events flow in background) ===
   sleep(randomBetween(5, 10));
@@ -108,6 +120,10 @@ export function rotationUserSession() {
   // === STEP 7: Claim Reward (30% of sessions) ===
   if (Math.random() < 0.3) {
     claimRotationGoal(user, token, challengeId);
+    sleep(randomBetween(1, 2));
+
+    // === STEP 7.5: Re-browse after claim (verify rotation display) ===
+    browseChallengesWithRotationChecks(user, token);
   }
 
   // === Session Gap ===
@@ -156,13 +172,13 @@ function browseChallengesWithRotationChecks(user, token) {
     'Browse: rotation goals have expiresAt': (r) => {
       const body = r.json();
       const daily = body.challenges.find(c => c.challengeId === 'daily-challenges');
-      if (!daily || !daily.goals) return true; // skip if not present
+      if (!daily || !daily.goals) return false; // fail if challenge missing (config error)
       return daily.goals.some(g => g.expiresAt && g.expiresAt.length > 0);
     },
     'Browse: rotation goals have expiresInSeconds': (r) => {
       const body = r.json();
       const daily = body.challenges.find(c => c.challengeId === 'daily-challenges');
-      if (!daily || !daily.goals) return true;
+      if (!daily || !daily.goals) return false; // fail if challenge missing (config error)
       return daily.goals.some(g => g.expiresInSeconds && g.expiresInSeconds > 0);
     },
   });
@@ -187,6 +203,54 @@ function getRotationStatus(user, token, challengeId) {
       const body = r.json();
       return body.rotation && body.rotation.currentPeriod && body.rotation.currentPeriod.expiresInSeconds > 0;
     },
+  });
+}
+
+function randomSelectRotationGoals(user, token, challengeId) {
+  const payload = JSON.stringify({
+    count: 3,
+    replace_existing: true,
+    exclude_active: true,
+  });
+
+  const resp = http.post(
+    `${BASE_URL}/v1/challenges/${challengeId}/goals/random-select`,
+    payload,
+    {
+      headers: createHeaders(user, token),
+      tags: { endpoint: 'random_select' },
+      // 400 is valid when goal pool is exhausted (all completed/claimed)
+      responseCallback: http.expectedStatuses(200, 400),
+    }
+  );
+
+  check(resp, {
+    'Random Select: status 200 or 400': (r) => r.status === 200 || r.status === 400,
+    'Random Select: has selected_goals': (r) => {
+      if (r.status !== 200) return true; // skip check on 400
+      const body = r.json();
+      return body.selectedGoals && body.selectedGoals.length > 0;
+    },
+  });
+}
+
+function batchSelectAbsoluteGoals(user, token) {
+  const payload = JSON.stringify({
+    goal_ids: ['challenge-001-goal-01', 'challenge-001-goal-02', 'challenge-001-goal-03'],
+    replace_existing: false,
+  });
+
+  const resp = http.post(
+    `${BASE_URL}/v1/challenges/${ABSOLUTE_CHALLENGE_ID}/goals/batch-select`,
+    payload,
+    {
+      headers: createHeaders(user, token),
+      tags: { endpoint: 'batch_select' },
+    }
+  );
+
+  check(resp, {
+    'Absolute Batch Select: status 200': (r) => r.status === 200,
   });
 }
 
@@ -273,7 +337,7 @@ export function rotationEventLoad() {
   }
 
   // Only stat events (rotation goals are stat-based, not login-based)
-  const statCodes = ['enemy_kills', 'login_count', 'games_played', 'headshots', 'wins'];
+  const statCodes = ['enemy_kills', 'games_played', 'headshots', 'wins'];
   const statMsg = {
     id: generateEventID(),
     userId: user.id,
@@ -308,23 +372,14 @@ function randomBetween(min, max) {
 // ============================================================================
 
 export function setup() {
-  // Note: To simulate stale rows (returning users after rotation boundary),
-  // set DB_SEED_STALE_ROWS=true and run the following SQL before the test:
-  //
-  //   UPDATE user_goal_progress
-  //   SET updated_at = NOW() - INTERVAL '1 day'
-  //   WHERE goal_id LIKE 'daily-goal-%'
-  //     AND random() < 0.4;
-  //
-  // This simulates 40% of daily rotation goal rows being from a previous
-  // rotation period, triggering baseline recomputation on next event.
+  // Stale-row seeding is now automated by run_and_analyze_loadtest.sh.
+  // The run script back-dates ~40% of daily rotation rows and re-seeds
+  // every 5 minutes, triggering baseline recomputation on subsequent events.
 
   console.log('\n=== M5 Rotation Stress Test ===');
   console.log(`VUs: ${TARGET_VUS}, Iterations: ${ITERATIONS}, EPS: ${TARGET_EPS}`);
   console.log(`Rotation challenges: daily-challenges, weekly-challenges`);
-  if (__ENV.DB_SEED_STALE_ROWS) {
-    console.log('WARNING: DB_SEED_STALE_ROWS is set. Ensure stale rows SQL was run before this test.');
-  }
+  console.log(`Absolute challenge (mixed mode): ${ABSOLUTE_CHALLENGE_ID}`);
 }
 
 export function teardown(data) {
@@ -332,6 +387,9 @@ export function teardown(data) {
   console.log('Key metrics to check:');
   console.log('  - rotation_status p95 < 100ms');
   console.log('  - browse_challenges p95 < 500ms (with expiresAt computation)');
+  console.log('  - random_select p95 < 50ms');
+  console.log('  - batch_select p95 < 50ms');
   console.log('  - Event processing p95 < 500ms (with inc/baseline handling)');
-  console.log('  - Claim success rate (rotation goals can be re-claimed after reset)');
+  console.log('  - Claim mix of 200s and 400s (claim-guard on stale rows)');
+  console.log('  - Post-claim re-browse validates rotation display');
 }
