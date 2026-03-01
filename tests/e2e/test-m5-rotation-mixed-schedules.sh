@@ -82,10 +82,16 @@ print_step 6 "Verify weekly expiry is >= daily expiry"
 assert_gte "$WEEKLY_EXPIRES_IN" "$DAILY_EXPIRES_IN" "Weekly expiresInSeconds should be >= daily expiresInSeconds"
 
 #============================================================================
-# Step 7: Verify the expiresAt timestamps differ
+# Step 7: Verify the expiresAt timestamps differ (except on Sundays where both end Monday midnight)
 #============================================================================
 print_step 7 "Verify expiresAt timestamps are different between schedules"
 
-assert_not_equals "$DAILY_EXPIRES_AT" "$WEEKLY_EXPIRES_AT" "Daily and weekly expiresAt should be different timestamps"
+DAY_OF_WEEK=$(date -u +%u)  # 7 = Sunday
+if [ "$DAY_OF_WEEK" -eq 7 ]; then
+  echo "  (Skipping: today is Sunday — daily and weekly boundaries both end Monday midnight)"
+  echo -e "${GREEN}✅ PASS${NC}: Skipped on Sunday (daily/weekly boundaries coincide)"
+else
+  assert_not_equals "$DAILY_EXPIRES_AT" "$WEEKLY_EXPIRES_AT" "Daily and weekly expiresAt should be different timestamps"
+fi
 
 print_success "M5 Mixed Daily+Weekly Expiry in Same Response"
