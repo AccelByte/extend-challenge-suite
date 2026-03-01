@@ -12,6 +12,19 @@ This directory contains all resources for performance profiling and load testing
 
 ---
 
+## Key Terms
+
+| Term | Meaning |
+|------|---------|
+| **TARGET_RPS** | Target Requests Per Second — how many HTTP API calls k6 will attempt per second. |
+| **TARGET_EPS** | Target Events Per Second — how many gRPC events k6 will send per second. |
+| **TARGET_VUS** | Target Virtual Users — number of simulated concurrent users. |
+| **p50 / p95 / p99** | Percentile latencies. p95 means 95% of requests completed within this time. |
+| **k6** | Open-source load testing tool used to simulate traffic. |
+| **pprof** | Go profiling tool for inspecting CPU usage, memory allocations, and goroutines. |
+
+---
+
 ## Quick Start
 
 Get started in under 2 minutes:
@@ -42,8 +55,8 @@ make dev-up
 ```
 
 **What to look for:**
-- `http_req_duration` p95 < 2000ms
-- `http_req_failed` rate < 1%
+- `http_req_duration` p95 < 2000ms (95% of requests completed within 2 seconds)
+- `http_req_failed` rate < 1% (fewer than 1 in 100 requests returned an error)
 - Web dashboard at http://localhost:5665 (if `K6_WEB_DASHBOARD=true`)
 
 For automated testing with profiling and analysis, see [`scripts/README.md`](scripts/README.md).
@@ -269,6 +282,7 @@ tests/loadtest/
 │   ├── scenario3_init_only.js         # Init endpoint investigation
 │   ├── scenario3_smoke.js             # Quick smoke test (~5 min)
 │   ├── scenario4_m4_realistic_sessions.js  # M4 realistic sessions
+│   ├── scenario5_m5_rotation.js            # M5 rotation stress test
 │   └── README_SCENARIO4.md            # Scenario 4 documentation
 ├── fixtures/                          # Test data (pre-generated)
 │   ├── challenges.json                # 12 challenges, ~600 goals
@@ -304,11 +318,13 @@ tests/loadtest/
 | 3 (smoke) | `scenario3_smoke.js` | Quick combined | ~5m | Yes | CI / pre-merge check |
 | 3 (init) | `scenario3_init_only.js` | Init investigation | 10m | No | Debug init performance |
 | 4 | `scenario4_m4_realistic_sessions.js` | M4 realistic | 30m | Yes | M4/M5 feature validation |
+| 5 | `scenario5_m5_rotation.js` | M5 rotation stress | 30m | Yes | Rotation-specific validation |
 
 **Tips:**
 - Start with **scenario1** or **scenario3_smoke** for a quick sanity check.
 - Use **scenario3_combined** for pre-release stress testing.
 - Use **scenario4** for M4+ feature validation with realistic user sessions.
+- Use **scenario5** for M5 rotation-specific validation (expiresAt, rotation status, rotation goal selection).
 - The "Duration" column shows how long a single k6 run takes. The detailed sections below describe multi-level testing strategies that run the same script multiple times.
 
 ---
@@ -482,6 +498,51 @@ docker exec -i challenge-postgres psql -U postgres -d challenge_db \
   < scripts/analyze_db_performance.sql \
   > results/scenario3/query_analysis.txt
 ```
+
+---
+
+### Scenario 5: M5 Rotation Stress Test
+
+**Objective:** Validate M5 time-based rotation under sustained load
+
+**Duration:** 30 min per run
+
+This scenario targets rotation-specific features:
+- `expiresAt` and `expiresInSeconds` fields in GET /challenges responses
+- GET /challenges/{id}/rotation endpoint for rotation status
+- Batch-select with rotation goals (daily + weekly challenges)
+- Background stat events with `inc` field for baseline computation
+
+**Run:**
+```bash
+# Using automated orchestrator (recommended)
+cd scripts && ./run_and_analyze_loadtest.sh scenario5_m5_rotation 150 500 120
+
+# Or directly with k6
+TARGET_VUS=150 TARGET_EPS=500 ITERATIONS=120 k6 run \
+  --out json=results/scenario5/test.json \
+  --summary-export=results/scenario5/summary.json \
+  k6/scenario5_m5_rotation.js
+```
+
+**Optional: Test with stale rows (simulates returning users after rotation boundary):**
+```bash
+# Seed stale rows before test
+docker exec challenge-postgres psql -U postgres -d challenge_db -c \
+  "UPDATE user_goal_progress SET updated_at = NOW() - INTERVAL '2 days' WHERE goal_id LIKE '%daily%' AND random() < 0.4;"
+
+# Run with stale rows flag
+DB_SEED_STALE_ROWS=true ./run_and_analyze_loadtest.sh scenario5_m5_rotation 150 500 120
+```
+
+**Success criteria:**
+- rotation_status p95 < 100ms
+- browse_challenges p95 < 500ms (with expiresAt computation)
+- batch_select p95 < 50ms
+- gRPC event p95 < 500ms
+- `expiresAt` checks > 99% pass rate
+
+**Performance results:** See [M5_PERFORMANCE_RESULTS.md](../../docs/M5_PERFORMANCE_RESULTS.md)
 
 ---
 
@@ -826,6 +887,7 @@ K6_WEB_DASHBOARD=true TARGET_RPS=500 k6 run --out json=results/scenario1/test.js
 K6_WEB_DASHBOARD=true TARGET_EPS=1000 k6 run --out json=results/scenario2/test.json k6/scenario2_event_load.js # ~10 min
 K6_WEB_DASHBOARD=true TARGET_RPS=200 TARGET_EPS=1000 k6 run --out json=results/scenario3/test.json k6/scenario3_combined.js  # ~30 min
 K6_WEB_DASHBOARD=true k6 run k6/scenario3_smoke.js  # ~5 min
+K6_WEB_DASHBOARD=true TARGET_VUS=150 TARGET_EPS=500 ITERATIONS=120 k6 run k6/scenario5_m5_rotation.js  # ~30 min
 
 # Run all scenarios
 ./scripts/run_all_scenarios.sh

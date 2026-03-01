@@ -1,7 +1,7 @@
 # AccelByte Extend Challenge Service - Documentation Index
 
-**Version**: M5 (Milestone 5 In Progress)
-**Last Updated**: 2026-02-27
+**Version**: M5 (Milestone 5 Complete)
+**Last Updated**: 2026-03-01
 
 This document serves as the primary navigation guide for all technical documentation in the AccelByte Extend Challenge Service platform.
 
@@ -96,7 +96,8 @@ Performance testing, profiling, and optimization guides.
 
 | Document | Description | Key Topics |
 |----------|-------------|------------|
-| [**PERFORMANCE_BASELINE.md**](PERFORMANCE_BASELINE.md) | M1 performance baseline metrics | Throughput (500 events/sec), latency (p95), batch performance |
+| [**PERFORMANCE_BASELINE.md**](PERFORMANCE_BASELINE.md) | Current performance baseline metrics | Throughput (500 events/sec), latency (p95), batch performance |
+| [**M5_PERFORMANCE_RESULTS.md**](M5_PERFORMANCE_RESULTS.md) | M5 load test report | Rotation overhead, combined load, scaling analysis |
 | [**M3_PHASE5_PERFORMANCE_RESULTS.md**](M3_PHASE5_PERFORMANCE_RESULTS.md) | M3 Phase 5 performance results | Comparison vs M1, regression testing |
 | [**PERFORMANCE_TUNING.md**](PERFORMANCE_TUNING.md) | Performance tuning guide | Profiling, optimization techniques, bottleneck identification |
 | [**PROFILING_GUIDE.md**](PROFILING_GUIDE.md) | Go profiling guide | pprof usage, CPU/memory profiling, flame graphs |
@@ -150,7 +151,7 @@ Product requirements and demo app guides.
 | Document | Description | Key Topics |
 |----------|-------------|------------|
 | [**[Engagement] PRD - Challenge Service.docx.pdf**]([Engagement]%20PRD%20-%20Challenge%20Service.docx.pdf) | Product Requirements Document | Business requirements, use cases, customer needs |
-| [**demo-app/**](demo-app/) | Demo app documentation | CLI usage, TUI interface, testing tools |
+| [**demo-app/**](demo-app/) | Demo app documentation ([full index](demo-app/INDEX.md)) | CLI usage, TUI interface, testing tools, architecture |
 
 ---
 
@@ -226,6 +227,7 @@ Product requirements and demo app guides.
 
 ### Performance Documents
 - [PERFORMANCE_BASELINE.md](PERFORMANCE_BASELINE.md) - Baseline metrics
+- [M5_PERFORMANCE_RESULTS.md](M5_PERFORMANCE_RESULTS.md) - M5 load test report
 - [M3_PHASE5_PERFORMANCE_RESULTS.md](M3_PHASE5_PERFORMANCE_RESULTS.md) - M3 results
 - [PERFORMANCE_TUNING.md](PERFORMANCE_TUNING.md) - Tuning guide
 - [PROFILING_GUIDE.md](PROFILING_GUIDE.md) - Profiling guide
