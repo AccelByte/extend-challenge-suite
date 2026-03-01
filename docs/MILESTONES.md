@@ -23,7 +23,7 @@ This document outlines the progressive feature rollout for the Challenge Service
 - **Milestone 2**: ✅ Complete (Performance validated, optimizations implemented)
 - **Milestone 3**: ✅ Complete (Goal assignment control with performance optimization)
 - **Milestone 4**: ✅ Complete (Batch & random goal selection)
-- **Milestone 5**: 🟡 In Progress (Time-based rotation with ProgressMode)
+- **Milestone 5**: ✅ Complete (Time-based rotation with ProgressMode)
 - **Backlog**: 5 feature sets for future development
 
 ---

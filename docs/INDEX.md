@@ -35,24 +35,24 @@ Core technical documentation for the initial milestone (M1).
 
 ---
 
-## Technical Specifications (M2 Extensions)
+## Technical Specifications (M2 Performance Profiling & Load Testing)
 
-Milestone 2 adds multiple challenges, tagging, and performance optimizations.
+Milestone 2 profiles system limits under load and validates scaling assumptions.
 
 | Document | Description | Key Topics |
 |----------|-------------|------------|
-| [**TECH_SPEC_M2.md**](TECH_SPEC_M2.md) | M2 feature specification | Multiple challenges, tags, filtering, assignment rules |
+| [**TECH_SPEC_M2.md**](TECH_SPEC_M2.md) | M2 feature specification | Load testing with k6, bottleneck discovery, scaling |
 | [**TECH_SPEC_M2_OPTIMIZATION.md**](TECH_SPEC_M2_OPTIMIZATION.md) | Performance optimizations for M2 | Query optimization, indexing strategy, caching |
 
 ---
 
-## Technical Specifications (M3 Time-Based Challenges)
+## Technical Specifications (M3 Per-User Goal Assignment Control)
 
-Milestone 3 introduces time-based challenges, schedules, and rotation.
+Milestone 3 adds per-user goal assignment, the Initialize endpoint, and activate/deactivate flows.
 
 | Document | Description | Key Topics |
 |----------|-------------|------------|
-| [**TECH_SPEC_M3.md**](TECH_SPEC_M3.md) | M3 feature specification | Schedules, timezones, rotation, prerequisites, visibility |
+| [**TECH_SPEC_M3.md**](TECH_SPEC_M3.md) | M3 feature specification | Goal assignment, initialization endpoint, activate/deactivate |
 
 ---
 

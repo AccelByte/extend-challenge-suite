@@ -34,7 +34,6 @@ The Challenge Suite enables game developers to implement **daily missions, seaso
 ✅ **Config-First Design** - Define challenges in `challenges.json`, no admin UI needed
 ✅ **Event-Driven Progress** - Real-time updates via AGS IAM login and Statistic events
 ✅ **High Performance** - Buffered processing with 1,000,000× DB query reduction via unified COPY path
-✅ **2 Progress Modes** - Absolute (track lifetime stat values) and Relative (track incremental progress with baseline)
 ✅ **Prerequisites** - Chain goals together with dependency management
 ✅ **AGS Integration** - Automatic reward grants (ITEM entitlements, WALLET credits)
 ✅ **Production-Ready** - 96%+ test coverage, observability, horizontal scaling validated
@@ -397,32 +396,34 @@ See [tests/loadtest/README.md](tests/loadtest/README.md) for detailed load testi
 
 ## Performance Metrics
 
-**M3 Load Test Results (Phase 8-15, Nov 2025):**
+**M5 Baseline (Feb 2026) — single Docker instance, 30-min sustained load.**
 
-### Production-Ready Performance
-- **Initialize Endpoint**: 16.84ms (p95) - **316x improvement** from Phase 8 (5,320ms → 16.84ms)
-- **Query Optimization**: 18.94ms (p95) - **15.7x speedup** via eliminated unnecessary query
-- **Event Processing**: 24.61ms (p95) - Well within 500ms target
-- **Memory Efficiency**: 45.8% allocation reduction (231.2 GB → 125.4 GB)
+> **Quick glossary:** **p95** = 95th-percentile latency (95% of requests finish faster).
+> **RPS** = HTTP requests/sec. **EPS** = gRPC events/sec. **VU** = virtual (simulated) user.
 
-### Tested Capacity (Single Instance)
-- **API Throughput**: 300 RPS sustained @ 17ms P95 (isolated workload)
-- **Event Processing**: 500+ EPS sustained @ 25ms P95
-- **Database**: 59% CPU under load (**NOT a bottleneck**)
-- **Connection Pool**: 68/100 connections (efficient utilization)
+### Latency
 
-### System Limits Discovered
-- ⚠️ **Mixed Workload**: Service CPU saturates at 122% (300 API RPS + 500 Event EPS)
-- ✅ **Solution**: Horizontal scaling required (2+ replicas for production)
-- ✅ **Database Scales**: Only 59% CPU, can handle 2x more load
+| Layer | p95 | Notes |
+|-------|-----|-------|
+| HTTP API (overall) | **3.89 ms** | GET challenges, claim, initialize, etc. |
+| gRPC event processing | **0.60 ms** | Includes rotation SQL CASE overhead |
+| Rotation status endpoint | **0.97 ms** | New in M5 |
 
-### Key Optimizations Achieved
-1. **Protobuf Bypass**: OptimizedInitializeHandler with direct JSON encoding
-2. **Query Elimination**: Removed unnecessary GetGoalsByIDs call (98% I/O reduction)
-3. **Buffer Pre-allocation**: Dynamic sizing based on goal count
-4. **Gradual Warmup**: Fixed cold start issue (99.99% failure → 0% errors)
+### Throughput (single instance)
 
-See [docs/M3_LOADTEST_RESULTS.md](docs/M3_LOADTEST_RESULTS.md) for comprehensive 15-phase load test journey.
+| Workload | Sustained rate | Error rate |
+|----------|---------------|------------|
+| Events only | 500 EPS | 0 % |
+| Realistic sessions | 150 VUs | 0 % |
+| Combined (API + Events) | 300 RPS + 500 EPS | 0 % HTTP, gRPC tail spikes under contention |
+
+### Test Coverage
+
+- **34 E2E tests** (login, stat, rotation, prerequisites, multi-user, error scenarios)
+- **95 %+** unit/integration coverage across all services
+
+See [docs/PERFORMANCE_BASELINE.md](docs/PERFORMANCE_BASELINE.md) for the full baseline and
+[docs/M5_PERFORMANCE_RESULTS.md](docs/M5_PERFORMANCE_RESULTS.md) for the detailed load-test report.
 
 ---
 
@@ -521,7 +522,7 @@ See [tests/e2e/README.md](tests/e2e/README.md) for more troubleshooting tips.
 | **M2** | ✅ Complete | Performance profiling & load testing |
 | **M3** | ✅ Complete | Per-user goal activation control |
 | **M4** | ✅ Complete | Batch & random goal selection |
-| **M5** | 🚧 In Progress | Time-based rotation |
+| **M5** | ✅ Complete | Time-based rotation |
 | **M6** | 🚧 Planned | Advanced prerequisites, visibility control |
 
 See [docs/MILESTONES.md](docs/MILESTONES.md) for detailed roadmap.
