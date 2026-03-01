@@ -2,13 +2,13 @@
 
 **Project**: AccelByte Extend Challenge Service
 **Started**: 2025-10-13 (M1)
-**Last Updated**: 2026-02-27 (M5 Phase 8)
+**Last Updated**: 2026-03-01 (M5 Complete)
 
 ---
 
 ## Current Phase: Milestone 5 (M5) - Time-Based Rotation
 
-**Status**: 🟡 M5 Phases 0.5–8 Complete, Phase 9 (Loadtest) Pending
+**Status**: ✅ M5 Complete (All Phases Done)
 
 **M4 Completion Summary:**
 - ✅ Batch manual goal selection (`POST /v1/challenges/{id}/goals/batch-select`)
@@ -26,8 +26,8 @@
 - ✅ Phase 6: API handler updates (expiresAt, expiresInSeconds, rotation endpoint)
 - ✅ Phase 7: Testing checklist complete
 - ✅ Phase 8: Documentation updates
-- ⬜ Phase 9: Loadtest fixture and script updates
-- ⬜ Phase 10: Performance report
+- ✅ Phase 9: Loadtest fixture and script updates
+- ✅ Phase 10: Performance report
 
 ---
 

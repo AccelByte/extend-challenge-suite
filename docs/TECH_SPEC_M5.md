@@ -1,6 +1,6 @@
 # M5 Technical Specification: Time-Based Rotation
 
-**Status:** Implementation Complete (Phases 0.5–8, 11 done; Phases 9–10 pending)
+**Status:** Implementation Complete (All Phases Done)
 **Created:** 2025-11-25
 **Dependencies:** M3 (Goal Activation Control), M4 (Batch & Random Selection)
 
@@ -1474,45 +1474,45 @@ Execute updated loadtest scenarios, collect profiles, and produce a performance 
 
 #### 10A: Pre-Test Setup
 
-- [ ] Rebuild and restart services with M5 code
-- [ ] Verify services healthy: `curl localhost:8000/challenge/healthz`
-- [ ] Enable pg_stat_statements, truncate data, reset stats
-- [ ] Record M4 baseline metrics from `tests/loadtest/results/scenario4_20251124_110149/` for comparison
+- [x] Rebuild and restart services with M5 code
+- [x] Verify services healthy: `curl localhost:8000/challenge/healthz`
+- [x] Enable pg_stat_statements, truncate data, reset stats
+- [x] Record M4 baseline metrics from `tests/loadtest/results/scenario4_20251124_110149/` for comparison
 
 #### 10B: Run Scenario 3 (Combined Load — 30 min)
 
-- [ ] Run `scenario3_combined.js` at 300 RPS + 500 EPS for 30 min
-- [ ] Collect k6 output, pprof profiles (CPU/heap/goroutine/mutex at 15-min mark), docker stats
-- [ ] Compare gRPC event p95 against M4 baseline (target: < 1.3x)
+- [x] Run `scenario3_combined.js` at 300 RPS + 500 EPS for 30 min
+- [x] Collect k6 output, pprof profiles (CPU/heap/goroutine/mutex at 15-min mark), docker stats
+- [x] Compare gRPC event p95 against M4 baseline (target: < 1.3x)
 
 #### 10C: Run Scenario 4 (Realistic Sessions — 30 min)
 
-- [ ] Reset database, run `scenario4_m4_realistic_sessions.js` at 150 VUs x 120 iterations + 500 EPS
-- [ ] Collect k6 output and profiles
-- [ ] Verify all thresholds pass: batch-select p95 < 50ms, random-select p95 < 50ms, rotation-status p95 < 100ms
+- [x] Reset database, run `scenario4_m4_realistic_sessions.js` at 150 VUs x 120 iterations + 500 EPS
+- [x] Collect k6 output and profiles
+- [x] Verify all thresholds pass: batch-select p95 < 50ms, random-select p95 < 50ms, rotation-status p95 < 100ms
 
 #### 10D: Run Scenario 5 (M5 Rotation Stress — 30 min)
 
-- [ ] Reset database, optionally seed stale rows (`DB_SEED_STALE_ROWS=true`)
-- [ ] Run `scenario5_m5_rotation.js` at 150 VUs x 120 iterations + 500 EPS
-- [ ] Collect k6 output and profiles
-- [ ] Verify `expires_at` checks pass (> 99%), compare event p95 with/without stale rows
+- [x] Reset database, optionally seed stale rows (`DB_SEED_STALE_ROWS=true`)
+- [x] Run `scenario5_m5_rotation.js` at 150 VUs x 120 iterations + 500 EPS
+- [x] Collect k6 output and profiles
+- [x] Verify `expires_at` checks pass (> 99%), compare event p95 with/without stale rows
 
 #### 10E: Generate Performance Report
 
-- [ ] Create `docs/M5_PERFORMANCE_RESULTS.md` with: Executive Summary, Test Environment, Results by Scenario
-- [ ] Include M5 vs M4 event processing comparison table (gRPC p95, avg, overhead vs 1.2x prediction)
-- [ ] Include M5 vs M4 API endpoint comparison table (per-endpoint p95: GET /challenges, initialize, batch-select, random-select, claim, rotation status)
-- [ ] Include pprof analysis: top 5 CPU consumers in event handler, new hotspots from SQL CASE
-- [ ] Include database analysis: pg_stat_statements for COPY+UPDATE query (mean_exec_time, calls)
-- [ ] Include resource utilization: CPU/memory for both services under load
-- [ ] Add scaling recommendations: additional DB cost for rotation-heavy workloads, connection pool sizing
+- [x] Create `docs/M5_PERFORMANCE_RESULTS.md` with: Executive Summary, Test Environment, Results by Scenario
+- [x] Include M5 vs M4 event processing comparison table (gRPC p95, avg, overhead vs 1.2x prediction)
+- [x] Include M5 vs M4 API endpoint comparison table (per-endpoint p95: GET /challenges, initialize, batch-select, random-select, claim, rotation status)
+- [x] Include pprof analysis: top 5 CPU consumers in event handler, new hotspots from SQL CASE
+- [x] Include database analysis: pg_stat_statements for COPY+UPDATE query (mean_exec_time, calls)
+- [x] Include resource utilization: CPU/memory for both services under load
+- [x] Add scaling recommendations: additional DB cost for rotation-heavy workloads, connection pool sizing
 
 #### 10F: Update Documentation
 
-- [ ] Link `M5_PERFORMANCE_RESULTS.md` from `TECH_SPEC_M5.md` Performance Benchmark Results section
-- [ ] Update `docs/PERFORMANCE_BASELINE.md` with M5 numbers (new baseline for M6)
-- [ ] Update `tests/loadtest/README.md` with scenario 5 description and run instructions
+- [x] Link `M5_PERFORMANCE_RESULTS.md` from `TECH_SPEC_M5.md` Performance Benchmark Results section
+- [x] Update `docs/PERFORMANCE_BASELINE.md` with M5 numbers (new baseline for M6)
+- [x] Update `tests/loadtest/README.md` with scenario 5 description and run instructions
 
 ### Phase 11: E2E Tests for Time-Based Rotation (0.5 days)
 
@@ -1709,6 +1709,8 @@ Instead of updating rows during rotation:
 > **STATUS: ✅ RESOLVED** — Benchmarks run 2026-02-25 against 100K rows (10K users × 10 goals) on PostgreSQL 15. Source: `tests/benchmarks/`. All questions Q3-Q5 are now answered with hard data.
 >
 > **Note:** Benchmarks validate core SQL CASE patterns (rotation detection, baseline init, status computation, `reset_progress`, and `allow_reselection`). NULL progress (login event accumulation) paths are deferred to Phase 7 integration tests.
+>
+> **Load Test Results:** See [M5_PERFORMANCE_RESULTS.md](./M5_PERFORMANCE_RESULTS.md) for full load test results (Scenarios 3, 4, 5) validating micro-benchmark predictions under sustained concurrent load. Key finding: 1.2x overhead prediction was conservative — no measurable regression under real load.
 
 ### Benchmark Summary
 
