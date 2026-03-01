@@ -3,6 +3,7 @@
 ## Prerequisites
 
 - Docker services running: `make dev-up` (from project root)
+  - First run builds Docker images (~3 min). Subsequent runs start in seconds.
 - Demo app built: `make build-demo-app`
 - `jq` installed: `apt install jq` or `brew install jq`
 
@@ -27,7 +28,7 @@ set -a && source .env && set +a && ./run-all-tests.sh
 
 **Setup:** Start services and build demo app (see Prerequisites above). No AGS credentials needed.
 
-**First time or after code changes:**
+**After code changes** (not needed on first run):
 ```bash
 make dev-rebuild   # Rebuild Docker images with latest code
 make test-e2e      # Run tests

@@ -73,7 +73,9 @@ services:
         condition: service_healthy
     volumes:
       - ./extend-challenge-service/config:/app/config:ro
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       - MOCK_AGS=true
       - MOCK_AGS_LATENCY_MIN_MS=50
@@ -111,7 +113,9 @@ services:
         condition: service_healthy
     volumes:
       - ./extend-challenge-event-handler/config:/app/config:ro
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       - BUFFER_FLUSH_INTERVAL=1s
       - BUFFER_SIZE_LIMIT=100000

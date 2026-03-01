@@ -89,8 +89,11 @@ The suite consists of **3 microservices** and a **shared library**:
 ### Prerequisites
 
 - **Docker** 20.10+ and **Docker Compose** 2.0+
-- **Make** (optional but recommended)
-- **Go** 1.25+ (for running demo app directly)
+- **Go** 1.25+ (builds the demo app used by E2E tests)
+- **jq** (used by test scripts)
+- **Make**
+
+Run `make check-prereqs` to verify everything is installed.
 
 ### 1. Clone Suite Repository
 
@@ -102,26 +105,22 @@ cd extend-challenge-suite
 ### 2. Clone Service Repositories
 
 ```bash
-# Run setup command to clone all service repos
 make setup
-
-# Or clone manually:
-git clone https://github.com/AccelByte/extend-challenge-service.git
-git clone https://github.com/AccelByte/extend-challenge-event-handler.git
-git clone https://github.com/AccelByte/extend-challenge-demo-app.git
 ```
 
 ### 3. Build Demo App
 
+The E2E tests use this compiled binary to interact with the services.
+
 ```bash
-# Build the demo app for testing
 make build-demo-app
 ```
 
 ### 4. Start All Services
 
+First run builds Docker images (~3 min). Subsequent runs start in seconds.
+
 ```bash
-# Start PostgreSQL, Redis, Backend Service, Event Handler
 make dev-up
 
 # View logs
@@ -139,20 +138,13 @@ This starts:
 
 ### 5. Test the API
 
-**List all challenges**:
 ```bash
-cd extend-challenge-demo-app
-go run main.go challenges list
-```
+# List all challenges
+curl -s http://localhost:8000/challenge/v1/challenges \
+  -H "Authorization: Bearer mock" | jq .
 
-**Trigger login event** (increments daily-login progress):
-```bash
-go run main.go events trigger login
-```
-
-**Claim reward**:
-```bash
-go run main.go challenges claim daily-quests daily-login
+# Or run a quick E2E test
+make test-e2e-login
 ```
 
 ### 6. Run End-to-End Tests
@@ -181,7 +173,7 @@ See [tests/e2e/QUICK_START.md](tests/e2e/QUICK_START.md) for detailed testing gu
 
 | Document | Purpose |
 |----------|---------|
-| **[docs/INDEX.md](docs/INDEX.md)** | **📍 Main documentation index (start here)** |
+| **[docs/INDEX.md](docs/INDEX.md)** | **Main documentation index (start here)** |
 | [README.md](README.md) | This file - Suite overview |
 | [AGS_SETUP_GUIDE.md](AGS_SETUP_GUIDE.md) | AccelByte Gaming Services setup |
 
@@ -213,26 +205,26 @@ See [tests/e2e/QUICK_START.md](tests/e2e/QUICK_START.md) for detailed testing gu
 
 ```
 extend-challenge-suite/
-├── docs/                          # 📚 All technical documentation
+├── docs/                          # All technical documentation
 │   ├── INDEX.md                   # Main documentation index
 │   ├── TECH_SPEC_M1.md           # Core architecture spec
 │   ├── TECH_SPEC_DATABASE.md     # Database design
 │   ├── TECH_SPEC_API.md          # REST API spec
 │   └── ... (20+ documents)
 │
-├── tests/e2e/                     # 🧪 End-to-end integration tests
+├── tests/e2e/                     # End-to-end integration tests
 │   ├── README.md                  # E2E testing guide
 │   ├── QUICK_START.md            # 5-minute quick start
 │   ├── test-*.sh                 # Test scripts
 │   └── helpers.sh                # Test utilities
 │
-├── tests/loadtest/                # ⚡ Load testing suite (k6)
+├── tests/loadtest/                # Load testing suite (k6)
 │   ├── README.md                  # Load testing guide
 │   ├── k6/                        # k6 test scripts
 │   ├── fixtures/                  # Test data (users, tokens, challenges)
 │   └── scripts/                   # Helper scripts
 │
-├── docker-compose.yml             # 🐳 Local development orchestration
+├── docker-compose.yml             # Local development orchestration
 ├── docker-compose.test.yml       # Test environment
 ├── Makefile                       # Build and orchestration commands
 ├── .env.example                   # Example configuration
@@ -247,7 +239,7 @@ extend-challenge-suite/
 
 ### Environment Variables
 
-Copy `.env.example` to `.env` and configure:
+`.env` is auto-created from `.env.example` when you run `make dev-up`. Edit it to change settings:
 
 ```bash
 # Database (PostgreSQL)
@@ -553,8 +545,8 @@ AccelByte Extend allows game developers to build custom game services that integ
 ---
 
 **Quick Links:**
-- [📚 Documentation Index](docs/INDEX.md)
-- [🚀 Quick Start Guide](tests/e2e/QUICK_START.md)
-- [🏗️ Architecture Spec](docs/TECH_SPEC_M1.md)
-- [🎯 AGS Setup](AGS_SETUP_GUIDE.md)
-- [🧪 Testing Guide](tests/e2e/README.md)
+- [Documentation Index](docs/INDEX.md)
+- [Quick Start Guide](tests/e2e/QUICK_START.md)
+- [Architecture Spec](docs/TECH_SPEC_M1.md)
+- [AGS Setup](AGS_SETUP_GUIDE.md)
+- [Testing Guide](tests/e2e/README.md)
