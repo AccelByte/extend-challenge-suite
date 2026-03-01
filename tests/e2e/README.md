@@ -360,6 +360,52 @@ When adding new tests:
 6. Update this README with new test description
 7. Add test to `run-all-tests.sh`
 
+## Dual Token Authentication (AGS Verification)
+
+For full AGS Platform verification, tests support a dual-token mode that uses
+a **user token** (password grant) for Challenge Service operations and an
+**admin token** (client credentials) for verifying rewards in AGS Platform.
+
+Add these to your `.env`:
+```bash
+ADMIN_CLIENT_ID=admin-client-id
+ADMIN_CLIENT_SECRET=admin-client-secret
+```
+
+Admin client needs these IAM permissions:
+- `NAMESPACE:{namespace}:USER:*:ENTITLEMENT [READ]`
+- `NAMESPACE:{namespace}:USER:*:WALLET [READ]`
+
+Helper functions for verification:
+- `verify_entitlement_granted(item_id)` - Checks item entitlement was granted
+- `verify_wallet_balance(currency_code, min_balance)` - Checks wallet meets minimum
+- `verify_wallet_increased(currency, initial, increase)` - Checks wallet delta
+
+If admin credentials are not provided, verification is skipped gracefully (no test failures).
+
+## Multi-User Test Details
+
+`test-multi-user.sh` runs 10 concurrent users to validate:
+- **User isolation** - Independent progress, no data leakage
+- **Concurrent event processing** - 10 users trigger events simultaneously
+- **Concurrent claims** - 10 users claim rewards at the same time
+- **Per-user mutex** - No race conditions
+- **Transaction locking** - No double-claims
+
+In **password mode**, the test auto-creates and auto-deletes 10 test users via AGS IAM API
+(requires `ADMIN:NAMESPACE:*:USER` CREATE permission on admin client).
+
+## Debugging Tips
+
+```bash
+# Enable bash debug mode
+bash -x ./test-login-flow.sh
+
+# Check database state
+docker compose exec postgres psql -U postgres -d challenge_db \
+  -c "SELECT * FROM user_goal_progress WHERE user_id = 'test-user-e2e';"
+```
+
 ## Related Documentation
 
 - [TECH_SPEC_CLI_MODE.md](../../docs/demo-app/TECH_SPEC_CLI_MODE.md) - CLI mode specification

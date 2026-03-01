@@ -18,8 +18,8 @@ const statClient = new grpc.Client();
 
 // Load proto files
 // Note: Adjust paths based on your proto file location
-loginClient.load(['../../extend-challenge-event-handler/pkg/proto/accelbyte-asyncapi/iam/account/v1'], 'account.proto');
-statClient.load(['../../extend-challenge-event-handler/pkg/proto/accelbyte-asyncapi/social/statistic/v1'], 'statistic.proto');
+loginClient.load(['../../../extend-challenge-event-handler/pkg/proto/accelbyte-asyncapi/iam/account/v1'], 'account.proto');
+statClient.load(['../../../extend-challenge-event-handler/pkg/proto/accelbyte-asyncapi/social/statistic/v1'], 'statistic.proto');
 
 // Track connection state per VU
 let loginConnected = false;
@@ -71,7 +71,7 @@ export default function() {
     });
   } else {
     // Send stat update event
-    const statCodes = ['enemy_kills', 'login_count', 'games_played', 'headshots', 'wins'];
+    const statCodes = ['enemy_kills', 'games_played', 'headshots', 'wins'];
     const statCode = statCodes[Math.floor(Math.random() * statCodes.length)];
 
     const statMsg = {

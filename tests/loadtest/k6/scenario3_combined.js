@@ -23,8 +23,8 @@ const NAMESPACE = __ENV.NAMESPACE || 'test';
 const loginClient = new grpc.Client();
 const statClient = new grpc.Client();
 
-loginClient.load(['../../extend-challenge-event-handler/pkg/proto/accelbyte-asyncapi/iam/account/v1'], 'account.proto');
-statClient.load(['../../extend-challenge-event-handler/pkg/proto/accelbyte-asyncapi/social/statistic/v1'], 'statistic.proto');
+loginClient.load(['../../../extend-challenge-event-handler/pkg/proto/accelbyte-asyncapi/iam/account/v1'], 'account.proto');
+statClient.load(['../../../extend-challenge-event-handler/pkg/proto/accelbyte-asyncapi/social/statistic/v1'], 'statistic.proto');
 
 // Track connection state per VU (PERFORMANCE FIX: connect once, reuse)
 let loginConnected = false;
@@ -108,7 +108,7 @@ export function eventLoad() {
     const response = loginClient.invoke('accelbyte.iam.account.v1.UserAuthenticationUserLoggedInService/OnMessage', loginMsg);
     check(response, { 'Event: login OK': (r) => r && r.status === grpc.StatusOK });
   } else {
-    const statCodes = ['enemy_kills', 'login_count', 'games_played', 'headshots', 'wins'];
+    const statCodes = ['enemy_kills', 'games_played', 'headshots', 'wins'];
     const statMsg = {
       id: generateEventID(),
       userId: user.id,

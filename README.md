@@ -95,73 +95,49 @@ The suite consists of **3 microservices** and a **shared library**:
 
 Run `make check-prereqs` to verify everything is installed.
 
-### 1. Clone Suite Repository
+### Option A: One Command
 
 ```bash
 git clone https://github.com/AccelByte/extend-challenge-suite.git
 cd extend-challenge-suite
+make quickstart      # clone repos, build demo app, start services, wait for healthy
+make test-e2e        # run all 34 E2E tests
 ```
 
-### 2. Clone Service Repositories
+### Option B: Step by Step
 
 ```bash
+# 1. Clone suite repo
+git clone https://github.com/AccelByte/extend-challenge-suite.git
+cd extend-challenge-suite
+
+# 2. Check prerequisites
+make check-prereqs
+
+# 3. Clone service repositories
 make setup
-```
 
-### 3. Build Demo App
-
-The E2E tests use this compiled binary to interact with the services.
-
-```bash
+# 4. Build demo app (used by E2E tests)
 make build-demo-app
-```
 
-### 4. Start All Services
-
-First run builds Docker images (~3 min). Subsequent runs start in seconds.
-
-```bash
+# 5. Start all services (first run builds images ~3 min)
 make dev-up
 
-# View logs
-make dev-logs
+# 6. Smoke test the API
+curl -s http://localhost:8000/challenge/v1/challenges \
+  -H "Authorization: Bearer mock" | jq .
 
-# Stop services
-make dev-down
+# 7. Run all E2E tests
+make test-e2e
 ```
 
-This starts:
+Services started by `make dev-up`:
 - **PostgreSQL** on port 5433
 - **Redis** on port 6379
 - **Challenge Service** on ports 6565 (gRPC), 8000 (HTTP), 8080 (metrics)
 - **Event Handler** on ports 6566 (gRPC), 8081 (metrics)
 
-### 5. Test the API
-
-```bash
-# List all challenges
-curl -s http://localhost:8000/challenge/v1/challenges \
-  -H "Authorization: Bearer mock" | jq .
-
-# Or run a quick E2E test
-make test-e2e-login
-```
-
-### 6. Run End-to-End Tests
-
-**Mock mode** (default): No AGS credentials needed — tests use mock authentication.
-
-**Real AGS mode**: Before running E2E tests with real authentication, you must create required AGS items in your namespace. Follow [AGS_SETUP_GUIDE.md](AGS_SETUP_GUIDE.md) Step 4 to create:
-- Items: `winter_sword`, `loyalty_badge`, `daily_chest` (INGAMEITEM, entitleable, active)
-- Currencies: `GOLD`, `GEMS` (VIRTUAL, published)
-
-```bash
-# Run all E2E tests
-make test-e2e
-
-# Run specific test
-make test-e2e-login
-```
+**Real AGS mode**: To run E2E tests with real authentication, follow [AGS_SETUP_GUIDE.md](AGS_SETUP_GUIDE.md) to configure your namespace.
 
 See [tests/e2e/QUICK_START.md](tests/e2e/QUICK_START.md) for detailed testing guide.
 
@@ -271,22 +247,26 @@ Define challenges in `extend-challenge-service/config/challenges.json`:
 {
   "challenges": [
     {
-      "id": "daily-quests",
+      "challengeId": "daily-quests",
       "name": "Daily Quests",
       "goals": [
         {
-          "id": "daily-login",
+          "goalId": "daily-login",
           "name": "Daily Login",
-          "type": "daily",
-          "event_source": "login",
+          "eventSource": "login",
           "requirement": {
-            "target": 1
+            "statCode": "login_count",
+            "operator": ">=",
+            "targetValue": 1,
+            "progressMode": "absolute"
           },
           "reward": {
-            "type": "ITEM",
-            "item_id": "daily-reward-box",
-            "quantity": 1
-          }
+            "type": "WALLET",
+            "rewardId": "GEMS",
+            "quantity": 10
+          },
+          "prerequisites": [],
+          "defaultAssigned": true
         }
       ]
     }
@@ -294,6 +274,8 @@ Define challenges in `extend-challenge-service/config/challenges.json`:
 }
 ```
 
+Key fields: `eventSource` is `"login"` (IAM events) or `"statistic"` (stat updates).
+`progressMode` is `"absolute"` (lifetime value) or `"relative"` (baseline-relative, for rotation).
 See [docs/TECH_SPEC_CONFIGURATION.md](docs/TECH_SPEC_CONFIGURATION.md) for full schema.
 
 ---
@@ -323,31 +305,19 @@ go test ./...
 Run from suite root:
 
 ```bash
-# All E2E tests
-make test-e2e
-
-# Individual tests
-make test-e2e-login        # Login flow
-make test-e2e-stat         # Stat update flow
-make test-e2e-daily        # Daily goal behavior
-make test-e2e-buffering    # Performance & buffering
-make test-e2e-prereqs      # Prerequisites
-make test-e2e-mixed        # Mixed goal types
-make test-e2e-errors       # Error scenarios
-make test-e2e-multiuser    # Multi-user isolation
-make test-e2e-m3-init      # M3 player initialization
-make test-e2e-inactive     # Inactive goal filtering
-make test-e2e-m4-batch     # M4 batch goal selection
-make test-e2e-m4-random    # M4 random goal selection
-
-# M5 rotation tests
-make test-e2e-m5-rotation-basic    # Basic rotation mechanics
-make test-e2e-m5-rotation-reset    # Rotation progress reset
-make test-e2e-m5-rotation-no-reset # Rotation without reset
-make test-e2e-m5-rotation-claimed  # Claimed goal rotation
-make test-e2e-m5-rotation-status   # Rotation status endpoint
-make test-e2e-m5-rotation-expiry   # Rotation expiry fields
+make test-e2e              # Run all 34 E2E tests
+make test-e2e-help         # Show all individual test targets
 ```
+
+**34 E2E tests by category:**
+
+| Category | Count | Examples |
+|----------|-------|---------|
+| Core (login, stat, daily, prereqs, mixed, buffering) | 6 | `make test-e2e-login` |
+| M3 (initialization, inactive filtering) | 2 | `make test-e2e-m3-init` |
+| M4 (batch, random selection) | 2 | `make test-e2e-m4-batch` |
+| M5 Rotation (daily/weekly/monthly, reset, expiry, etc.) | 21 | `make test-e2e-m5-rotation-basic` |
+| Error scenarios (errors, rewards, multi-user) | 3 | `make test-e2e-errors` |
 
 **Test Coverage**: 95%+ comprehensive coverage across unit, integration, and E2E tests.
 
@@ -500,7 +470,7 @@ docker-compose exec postgres pg_isready -U postgres
 
 1. Check event handler logs: `docker-compose logs -f challenge-event-handler`
 2. Wait for buffer flush (default: 1 second interval)
-3. Verify goal configuration has correct `event_source` field
+3. Verify goal configuration has correct `eventSource` field
 
 See [tests/e2e/README.md](tests/e2e/README.md) for more troubleshooting tips.
 
@@ -542,11 +512,3 @@ AccelByte Extend allows game developers to build custom game services that integ
 
 **Learn more**: https://accelbyte.io/extend/
 
----
-
-**Quick Links:**
-- [Documentation Index](docs/INDEX.md)
-- [Quick Start Guide](tests/e2e/QUICK_START.md)
-- [Architecture Spec](docs/TECH_SPEC_M1.md)
-- [AGS Setup](AGS_SETUP_GUIDE.md)
-- [Testing Guide](tests/e2e/README.md)

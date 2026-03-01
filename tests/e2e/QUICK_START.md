@@ -203,6 +203,4 @@ make dev-rebuild
 
 ## Next Steps
 
-- Read full documentation: [tests/e2e/README.md](./README.md)
-- Understand authentication modes: [TECH_SPEC_AUTHENTICATION.md](../../docs/demo-app/TECH_SPEC_AUTHENTICATION.md)
-- Learn about CLI mode: [TECH_SPEC_CLI_MODE.md](../../docs/demo-app/TECH_SPEC_CLI_MODE.md)
+See [README.md](./README.md) for the full E2E testing guide (auth modes, dual-token verification, multi-user testing, debugging).

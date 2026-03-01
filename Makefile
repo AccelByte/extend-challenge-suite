@@ -5,6 +5,10 @@
 # Reusable macro: run an E2E test script, loading tests/e2e/.env if present
 # ---------------------------------------------------------------------------
 define run_e2e
+	@if [ ! -f extend-challenge-demo-app/bin/challenge-demo ]; then \
+		echo "Demo app binary not found — building automatically..."; \
+		cd extend-challenge-demo-app && mkdir -p bin && go build -o bin/challenge-demo ./cmd/challenge-demo; \
+	fi
 	@if [ -f tests/e2e/.env ]; then \
 		cd tests/e2e && set -a && . ./.env && set +a && ./$(1); \
 	else \
@@ -23,6 +27,7 @@ help:
 	@echo "  make check-prereqs   - Verify required tools are installed"
 	@echo "  make setup           - Clone all service repositories"
 	@echo "  make build-demo-app  - Build the demo app for E2E testing"
+	@echo "  make quickstart      - One command: clone, build, start, verify"
 	@echo ""
 	@echo "Development (services start in mock mode — no AGS credentials needed):"
 	@echo "  make dev-up          - Start services (fastest — reuses existing images)"
@@ -159,30 +164,20 @@ ensure-env:
 .PHONY: setup
 setup:
 	@echo "Cloning service repositories..."
-	@if [ ! -d "extend-challenge-common" ]; then \
-		echo "Cloning extend-challenge-common..."; \
-		git clone https://github.com/AccelByte/extend-challenge-common.git; \
-	else \
-		echo "extend-challenge-common already exists"; \
-	fi
-	@if [ ! -d "extend-challenge-service" ]; then \
-		echo "Cloning extend-challenge-service..."; \
-		git clone https://github.com/AccelByte/extend-challenge-service.git; \
-	else \
-		echo "extend-challenge-service already exists"; \
-	fi
-	@if [ ! -d "extend-challenge-event-handler" ]; then \
-		echo "Cloning extend-challenge-event-handler..."; \
-		git clone https://github.com/AccelByte/extend-challenge-event-handler.git; \
-	else \
-		echo "extend-challenge-event-handler already exists"; \
-	fi
-	@if [ ! -d "extend-challenge-demo-app" ]; then \
-		echo "Cloning extend-challenge-demo-app..."; \
-		git clone https://github.com/AccelByte/extend-challenge-demo-app.git; \
-	else \
-		echo "extend-challenge-demo-app already exists"; \
-	fi
+	@for repo in extend-challenge-common extend-challenge-service extend-challenge-event-handler extend-challenge-demo-app; do \
+		if [ ! -d "$$repo" ]; then \
+			echo "Cloning $$repo..."; \
+			if ! git clone "https://github.com/AccelByte/$$repo.git"; then \
+				echo ""; \
+				echo "ERROR: Failed to clone $$repo."; \
+				echo "  If this is a private repo, try SSH:"; \
+				echo "    git clone git@github.com:AccelByte/$$repo.git"; \
+				exit 1; \
+			fi; \
+		else \
+			echo "$$repo already exists"; \
+		fi; \
+	done
 	@echo ""
 	@echo "Setup complete! All service repositories are ready."
 	@echo "  Run 'make dev-up' to start all services."
@@ -199,15 +194,28 @@ build-demo-app:
 	@cd extend-challenge-demo-app && mkdir -p bin && go build -o bin/challenge-demo ./cmd/challenge-demo
 	@echo "Demo app built successfully at: extend-challenge-demo-app/bin/challenge-demo"
 
+.PHONY: quickstart
+quickstart: check-prereqs setup build-demo-app dev-up
+	@echo ""
+	@echo "=========================================="
+	@echo "  Quickstart complete!"
+	@echo "=========================================="
+	@echo ""
+	@echo "Smoke test:"
+	@echo "  curl -s http://localhost:8000/challenge/v1/challenges -H 'Authorization: Bearer mock' | jq ."
+	@echo ""
+	@echo "Run all 34 E2E tests:"
+	@echo "  make test-e2e"
+
 # ---------------------------------------------------------------------------
 # Development
 # ---------------------------------------------------------------------------
 .PHONY: dev-up
 dev-up: setup ensure-env
 	@echo "Starting all services..."
-	docker compose up -d
+	docker compose up -d --wait
 	@echo ""
-	@echo "Services started!"
+	@echo "All services healthy and ready!"
 	@echo "  - PostgreSQL:          localhost:5433"
 	@echo "  - Redis:               localhost:6379"
 	@echo "  - Challenge Service:   localhost:8000 (HTTP), localhost:6565 (gRPC)"
@@ -219,9 +227,9 @@ dev-up: setup ensure-env
 .PHONY: dev-rebuild
 dev-rebuild: ensure-env
 	@echo "Rebuilding and restarting services..."
-	docker compose up -d --build
+	docker compose up -d --build --wait
 	@echo ""
-	@echo "Services rebuilt and restarted"
+	@echo "Services rebuilt, healthy and ready!"
 
 .PHONY: dev-down
 dev-down:
@@ -234,8 +242,8 @@ dev-restart: ensure-env
 	@echo "Restarting all services..."
 	docker compose down
 	docker compose build --no-cache
-	docker compose up -d
-	@echo "Services restarted"
+	docker compose up -d --wait
+	@echo "Services rebuilt from scratch, healthy and ready!"
 
 .PHONY: dev-logs
 dev-logs:
@@ -254,7 +262,7 @@ dev-clean:
 .PHONY: dev-up-loadtest
 dev-up-loadtest: setup ensure-env
 	@echo "Starting services with loadtest config..."
-	docker compose -f docker-compose.yml -f docker-compose.loadtest.yml up -d
+	docker compose -f docker-compose.yml -f docker-compose.loadtest.yml up -d --wait
 	@echo ""
 	@echo "Services started with loadtest config ($(shell jq '[.challenges[].goals[]] | length' tests/loadtest/fixtures/challenges.json 2>/dev/null || echo '?') goals)"
 	@echo "  Config: tests/loadtest/fixtures/challenges.json (volume-mounted)"
@@ -263,7 +271,7 @@ dev-up-loadtest: setup ensure-env
 .PHONY: dev-rebuild-loadtest
 dev-rebuild-loadtest: ensure-env
 	@echo "Rebuilding services with loadtest config..."
-	docker compose -f docker-compose.yml -f docker-compose.loadtest.yml up -d --build
+	docker compose -f docker-compose.yml -f docker-compose.loadtest.yml up -d --build --wait
 	@echo ""
 	@echo "Services rebuilt with loadtest config"
 
@@ -272,6 +280,10 @@ dev-rebuild-loadtest: ensure-env
 # ---------------------------------------------------------------------------
 .PHONY: test-e2e
 test-e2e:
+	@if [ ! -f extend-challenge-demo-app/bin/challenge-demo ]; then \
+		echo "Demo app binary not found — building automatically..."; \
+		cd extend-challenge-demo-app && mkdir -p bin && go build -o bin/challenge-demo ./cmd/challenge-demo; \
+	fi
 	@echo "Running all E2E tests..."
 	@if [ -f tests/e2e/.env ]; then \
 		echo "Loading environment from tests/e2e/.env..."; \
