@@ -88,10 +88,15 @@ The suite consists of **3 microservices** and a **shared library**:
 
 ### Prerequisites
 
+**Required:**
 - **Docker** 20.10+ and **Docker Compose** 2.0+
 - **Go** 1.25+ (builds the demo app used by E2E tests)
 - **jq** (used by test scripts)
 - **Make**
+
+**Optional** (for specific test types):
+- **[golangci-lint](https://golangci-lint.run/welcome/install/)** (for `make lint`)
+- **[k6](https://grafana.com/docs/k6/latest/set-up/install-k6/)** (for `make test-loadtest-smoke`)
 
 Run `make check-prereqs` to verify everything is installed.
 
@@ -282,27 +287,41 @@ See [docs/TECH_SPEC_CONFIGURATION.md](docs/TECH_SPEC_CONFIGURATION.md) for full 
 
 ## Testing
 
-### Unit & Integration Tests
+All test types can be run from the **suite root** — no need to `cd` into sub-projects.
 
-Each service repository has its own test suite:
+| Command | What it runs | Time | Requires |
+|---------|-------------|------|----------|
+| `make test-unit` | Unit tests across all 3 projects | ~30s | Go |
+| `make test-integration` | Integration tests with auto DB lifecycle | ~2 min | Docker |
+| `make lint` | golangci-lint across all 3 projects | ~20s | golangci-lint |
+| `make test-e2e` | All 34 E2E tests | ~3 min | Services running (`make dev-up`) |
+| `make test-loadtest-smoke` | Scenario 3 smoke test | ~5 min | k6, services running |
+
+### Unit Tests
 
 ```bash
-# Backend service
-cd extend-challenge-service
-make test
+make test-unit         # No database or services needed
+```
 
-# Event handler
-cd extend-challenge-event-handler
-make test
+Runs `go test` (excluding integration tests) in `extend-challenge-common`, `extend-challenge-service`, and `extend-challenge-event-handler`.
 
-# Common library
-cd extend-challenge-common
-go test ./...
+### Integration Tests
+
+```bash
+make test-integration  # Manages its own DB containers — no services needed
+```
+
+Each project's test database is started, tests run, and the database is torn down before the next project begins. Port 5433 must be free (stop the main stack first with `make dev-down` if running).
+
+### Linting
+
+```bash
+make lint              # Requires golangci-lint installed
 ```
 
 ### End-to-End Tests
 
-Run from suite root:
+Requires services to be running (`make dev-up`):
 
 ```bash
 make test-e2e              # Run all 34 E2E tests
@@ -325,32 +344,40 @@ See [tests/e2e/README.md](tests/e2e/README.md) for detailed E2E testing guide.
 
 ### Load Testing
 
-Performance and load testing with k6:
+Requires [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/) installed.
 
 ```bash
-cd tests/loadtest
+# Quick smoke test (~5 min) — auto-switches to loadtest config and back
+make test-loadtest-smoke
+```
 
-# Generate test fixtures
+| Scenario | Script | Focus |
+|----------|--------|-------|
+| 1 - API Load | `scenario1_api_load.js` | HTTP endpoints up to 5,000 RPS |
+| 2 - Event Load | `scenario2_event_load.js` | gRPC events up to 10,000 EPS |
+| 3 - Combined | `scenario3_combined.js` | API + Events together |
+| 3 - Smoke | `scenario3_smoke.js` | Quick combined smoke (~5 min) |
+| 4 - Realistic Sessions | `scenario4_m4_realistic_sessions.js` | M4 batch/random user flows |
+| 5 - M5 Rotation | `scenario5_m5_rotation.js` | Rotation + expiry under load |
+
+For manual runs with custom parameters:
+
+```bash
+# Switch to loadtest config
+make dev-up-loadtest
+
+# Generate fixtures (first time only)
+cd tests/loadtest
 ./scripts/generate_users.sh
 ./scripts/generate_challenges.sh
 MOCK_MODE=true ./scripts/generate_tokens.sh
 
-# Run individual scenarios
+# Run a scenario
 K6_WEB_DASHBOARD=true TARGET_RPS=500 k6 run k6/scenario1_api_load.js
-K6_WEB_DASHBOARD=true TARGET_EPS=1000 k6 run k6/scenario2_event_load.js
-K6_WEB_DASHBOARD=true TARGET_RPS=200 TARGET_EPS=1000 k6 run k6/scenario3_combined.js
 
-# Or run all scenarios (6-12 hours)
-./scripts/run_all_scenarios.sh
+# Switch back to E2E config
+cd ../.. && make dev-up
 ```
-
-**Load Test Capabilities**:
-- API load testing up to 5,000 RPS
-- Event processing load up to 10,000 EPS
-- Combined load testing (API + Events)
-- Real-time monitoring with k6 web dashboard
-- Database performance analysis
-- pprof CPU and memory profiling
 
 See [tests/loadtest/README.md](tests/loadtest/README.md) for detailed load testing guide.
 
@@ -394,10 +421,13 @@ See [docs/PERFORMANCE_BASELINE.md](docs/PERFORMANCE_BASELINE.md) for the full ba
 ### Local Development
 
 ```bash
-# Start all services
+# Start all services (fastest — reuses existing images)
 make dev-up
 
-# Make changes and rebuild
+# Rebuild with cache after Go code changes (fast, iterative dev)
+make dev-rebuild
+
+# Full rebuild from scratch, no cache (use if cached build seems wrong)
 make dev-restart
 
 # Stop services

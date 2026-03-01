@@ -41,6 +41,11 @@ help:
 	@echo "  make dev-rebuild-loadtest - Rebuild with loadtest config"
 	@echo ""
 	@echo "Testing:"
+	@echo "  make test-unit       - Run unit tests across all 3 projects (~30s, no DB needed)"
+	@echo "  make test-integration - Run integration tests (auto DB lifecycle, ~2 min)"
+	@echo "  make lint            - Run golangci-lint across all 3 projects"
+	@echo "  make test-loadtest-smoke - Run load test smoke (scenario3, ~5 min)"
+	@echo ""
 	@echo "  make test-e2e        - Run all E2E tests (auto-loads tests/e2e/.env)"
 	@echo "  make test-e2e-login  - Test login flow"
 	@echo "  make test-e2e-stat   - Test stat update flow"
@@ -141,11 +146,25 @@ check-prereqs:
 	fi; \
 	if $$ok; then \
 		echo ""; \
-		echo "All prerequisites satisfied."; \
+		echo "All required prerequisites satisfied."; \
 	else \
 		echo ""; \
 		echo "Install the missing tools above before continuing."; \
 		exit 1; \
+	fi; \
+	echo ""; \
+	echo "Optional (needed for specific test types):"; \
+	if command -v golangci-lint >/dev/null 2>&1; then \
+		printf "  %-18s %s\n" "golangci-lint" "$$(golangci-lint --version 2>/dev/null | head -1)"; \
+	else \
+		printf "  %-18s not installed (needed for 'make lint')\n" "golangci-lint"; \
+		echo "                     Install: https://golangci-lint.run/welcome/install/"; \
+	fi; \
+	if command -v k6 >/dev/null 2>&1; then \
+		printf "  %-18s %s\n" "k6" "$$(k6 version 2>/dev/null | head -1)"; \
+	else \
+		printf "  %-18s not installed (needed for 'make test-loadtest-smoke')\n" "k6"; \
+		echo "                     Install: https://grafana.com/docs/k6/latest/set-up/install-k6/"; \
 	fi
 
 # ---------------------------------------------------------------------------
@@ -274,6 +293,113 @@ dev-rebuild-loadtest: ensure-env
 	docker compose -f docker-compose.yml -f docker-compose.loadtest.yml up -d --build --wait
 	@echo ""
 	@echo "Services rebuilt with loadtest config"
+
+# ---------------------------------------------------------------------------
+# Unit Tests (no DB or services needed)
+# ---------------------------------------------------------------------------
+.PHONY: test-unit
+test-unit:
+	@echo "Running unit tests across all projects..."
+	@echo ""
+	@fail=false; \
+	echo "=== extend-challenge-common ==="; \
+	(cd extend-challenge-common && go test $$(go list ./... | grep -v /integration) -v) || fail=true; \
+	echo ""; \
+	echo "=== extend-challenge-service ==="; \
+	(cd extend-challenge-service && go test $$(go list ./... | grep -v /tests/integration) -v) || fail=true; \
+	echo ""; \
+	echo "=== extend-challenge-event-handler ==="; \
+	(cd extend-challenge-event-handler && go test $$(go list ./... | grep -v /integration) -v) || fail=true; \
+	echo ""; \
+	if $$fail; then \
+		echo "FAIL: Some unit tests failed."; \
+		exit 1; \
+	fi; \
+	echo "All unit tests passed."
+
+# ---------------------------------------------------------------------------
+# Integration Tests (auto DB lifecycle, no main stack needed)
+# ---------------------------------------------------------------------------
+.PHONY: test-integration
+test-integration:
+	@echo "Running integration tests across all projects..."
+	@echo ""
+	@if ss -tln 2>/dev/null | grep -q ':5433 ' || lsof -iTCP:5433 -sTCP:LISTEN >/dev/null 2>&1; then \
+		echo "ERROR: Port 5433 is already in use (main stack running?)."; \
+		echo "  Stop the main stack first: make dev-down"; \
+		exit 1; \
+	fi
+	@fail=false; \
+	echo "=== extend-challenge-service (port 5433) ==="; \
+	(cd extend-challenge-service && \
+		$(MAKE) test-integration-setup && \
+		($(MAKE) test-integration-run || ($(MAKE) test-integration-teardown; false)) && \
+		$(MAKE) test-integration-teardown \
+	) || fail=true; \
+	echo ""; \
+	echo "=== extend-challenge-event-handler (port 5432) ==="; \
+	(cd extend-challenge-event-handler && \
+		$(MAKE) test-integration-setup && \
+		($(MAKE) test-integration-run || ($(MAKE) test-integration-teardown; false)) && \
+		$(MAKE) test-integration-teardown \
+	) || fail=true; \
+	echo ""; \
+	echo "=== extend-challenge-common (port 5433) ==="; \
+	(cd extend-challenge-common && \
+		$(MAKE) db-setup && \
+		($(MAKE) test || ($(MAKE) db-teardown; false)) && \
+		$(MAKE) db-teardown \
+	) || fail=true; \
+	echo ""; \
+	if $$fail; then \
+		echo "FAIL: Some integration tests failed."; \
+		exit 1; \
+	fi; \
+	echo "All integration tests passed."
+
+# ---------------------------------------------------------------------------
+# Lint (golangci-lint across all projects)
+# ---------------------------------------------------------------------------
+.PHONY: lint
+lint:
+	@if ! command -v golangci-lint >/dev/null 2>&1; then \
+		echo "ERROR: golangci-lint not installed."; \
+		echo "  Install: https://golangci-lint.run/welcome/install/"; \
+		exit 1; \
+	fi
+	@echo "Running golangci-lint across all projects..."
+	@echo ""
+	@fail=false; \
+	for dir in extend-challenge-common extend-challenge-service extend-challenge-event-handler; do \
+		echo "=== $$dir ==="; \
+		(cd "$$dir" && golangci-lint run ./...) || fail=true; \
+		echo ""; \
+	done; \
+	if $$fail; then \
+		echo "FAIL: Linter found issues."; \
+		exit 1; \
+	fi; \
+	echo "All projects pass lint."
+
+# ---------------------------------------------------------------------------
+# Load Test Smoke (scenario3_smoke, ~5 min)
+# ---------------------------------------------------------------------------
+.PHONY: test-loadtest-smoke
+test-loadtest-smoke:
+	@if ! command -v k6 >/dev/null 2>&1; then \
+		echo "ERROR: k6 not installed."; \
+		echo "  Install: https://grafana.com/docs/k6/latest/set-up/install-k6/"; \
+		exit 1; \
+	fi
+	@echo "Switching to loadtest config..."
+	@$(MAKE) dev-up-loadtest
+	@echo ""
+	@echo "Running scenario3_smoke (~5 min)..."
+	@cd tests/loadtest && k6 run k6/scenario3_smoke.js; smoke_exit=$$?; \
+	echo ""; \
+	echo "Switching back to E2E config..."; \
+	cd ../.. && $(MAKE) dev-up; \
+	exit $$smoke_exit
 
 # ---------------------------------------------------------------------------
 # E2E Tests (all targets use the run_e2e macro)
