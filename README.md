@@ -90,7 +90,7 @@ The suite consists of **3 microservices** and a **shared library**:
 
 **Required:**
 - **Docker** 20.10+ and **Docker Compose** 2.0+
-- **Go** 1.25+ (builds the demo app used by E2E tests)
+- **[Go](https://go.dev/doc/install)** 1.25+ (builds the demo app) — check: `go version`
 - **jq** (used by test scripts)
 - **Make**
 
@@ -105,7 +105,7 @@ Run `make check-prereqs` to verify everything is installed.
 ```bash
 git clone https://github.com/AccelByte/extend-challenge-suite.git
 cd extend-challenge-suite
-make quickstart      # clone repos, build demo app, start services, wait for healthy
+make quickstart      # checks prereqs, clones, builds, starts (~5 min first time)
 make test-e2e        # run all 34 E2E tests
 ```
 
@@ -135,6 +135,9 @@ curl -s http://localhost:8000/challenge/v1/challenges \
 # 7. Run all E2E tests
 make test-e2e
 ```
+
+**Next steps:** Run all test types with `make test-unit && make test-integration && make dev-up && make test-e2e`.
+See [tests/e2e/QUICK_START.md](tests/e2e/QUICK_START.md) for the E2E testing guide.
 
 Services started by `make dev-up`:
 - **PostgreSQL** on port 5433
@@ -289,6 +292,10 @@ See [docs/TECH_SPEC_CONFIGURATION.md](docs/TECH_SPEC_CONFIGURATION.md) for full 
 
 All test types can be run from the **suite root** — no need to `cd` into sub-projects.
 
+**Recommended order:** unit → lint → integration → (start services with `make dev-up`) → e2e → load.
+Integration tests manage their own database containers and need services **stopped**.
+E2E and load tests need services **running**.
+
 | Command | What it runs | Time | Requires |
 |---------|-------------|------|----------|
 | `make test-unit` | Unit tests across all 3 projects | ~30s | Go |
@@ -311,7 +318,11 @@ Runs `go test` (excluding integration tests) in `extend-challenge-common`, `exte
 make test-integration  # Manages its own DB containers — no services needed
 ```
 
-Each project's test database is started, tests run, and the database is torn down before the next project begins. Port 5433 must be free (stop the main stack first with `make dev-down` if running).
+Each project's test database is started, tests run, and the database is torn down automatically.
+
+> **Important:** Stop services first with `make dev-down` — integration tests need
+> port 5433, which conflicts with the main PostgreSQL container.
+> Restart with `make dev-up` afterward for E2E tests.
 
 ### Linting
 
@@ -501,6 +512,34 @@ docker-compose exec postgres pg_isready -U postgres
 1. Check event handler logs: `docker-compose logs -f challenge-event-handler`
 2. Wait for buffer flush (default: 1 second interval)
 3. Verify goal configuration has correct `eventSource` field
+
+### Port 5433 already in use
+
+Integration tests and the main stack both use port 5433. Stop services first:
+
+```bash
+make dev-down           # stop main stack
+make test-integration   # run tests
+make dev-up             # restart services afterward
+```
+
+### Services stuck in restart loop
+
+If `docker-compose ps` shows services "Restarting", the database container may be
+missing (e.g., after integration tests). Fix with:
+
+```bash
+make dev-up             # recreates all containers
+```
+
+### Choosing between dev-up, dev-rebuild, dev-restart, dev-clean
+
+| Command | Use when | Speed |
+|---------|----------|-------|
+| `make dev-up` | Starting services / no code changes | ~30s |
+| `make dev-rebuild` | After Go code changes | ~1 min |
+| `make dev-restart` | Cached build seems wrong | ~3 min |
+| `make dev-clean && make dev-up` | Nuclear reset (wipes DB) | ~3 min |
 
 See [tests/e2e/README.md](tests/e2e/README.md) for more troubleshooting tips.
 
