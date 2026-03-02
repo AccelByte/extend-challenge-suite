@@ -136,7 +136,7 @@ curl -s http://localhost:8000/challenge/v1/challenges \
 make test-e2e
 ```
 
-**Next steps:** Run all test types with `make test-unit && make test-integration && make dev-up && make test-e2e`.
+**Next steps:** Run all test types: `make test-unit && make dev-down && make test-integration && make dev-up && make test-e2e`.
 See [tests/e2e/QUICK_START.md](tests/e2e/QUICK_START.md) for the E2E testing guide.
 
 Services started by `make dev-up`:
@@ -302,7 +302,29 @@ E2E and load tests need services **running**.
 | `make test-integration` | Integration tests with auto DB lifecycle | ~2 min | Docker |
 | `make lint` | golangci-lint across all 3 projects | ~20s | golangci-lint |
 | `make test-e2e` | All 34 E2E tests | ~3 min | Services running (`make dev-up`) |
-| `make test-loadtest-smoke` | Scenario 3 smoke test | ~5 min | k6, services running |
+| `make test-loadtest-smoke` | Scenario 3 smoke test | ~5 min | [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/), services running |
+| `cd extend-challenge-common && make bench` | Database query benchmarks | ~2 min | Go, Docker |
+
+### Run All Tests (Recommended Sequence)
+
+```bash
+# 1. Unit tests (no services needed)
+make test-unit
+
+# 2. Lint (no services needed)
+make lint
+
+# 3. Integration tests (need services STOPPED — auto-manages its own DB)
+make dev-down
+make test-integration
+
+# 4. E2E tests (need services RUNNING)
+make dev-up
+make test-e2e
+
+# 5. Load test smoke (optional, needs k6 installed)
+make test-loadtest-smoke
+```
 
 ### Unit Tests
 
@@ -336,7 +358,7 @@ Requires services to be running (`make dev-up`):
 
 ```bash
 make test-e2e              # Run all 34 E2E tests
-make test-e2e-help         # Show all individual test targets
+make test-e2e-help         # Show all 34 individual test targets (e.g., test-e2e-login, test-e2e-m5-rotation-basic)
 ```
 
 **34 E2E tests by category:**
@@ -478,7 +500,7 @@ We welcome contributions! Here's how to get started:
 1. Make code changes in service repository
 2. Write unit tests (aim for 80%+ coverage)
 3. Run linter: `make lint`
-4. Run tests: `make test`
+4. Run tests: `make test-unit`
 5. Run E2E tests from suite repo: `make test-e2e`
 6. Submit PR with clear description
 
