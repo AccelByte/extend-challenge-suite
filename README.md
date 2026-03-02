@@ -17,26 +17,26 @@ The Challenge Suite enables game developers to implement **daily missions, seaso
 ### Key Features
 
 **M5 (Current Release):**
-✅ **Time-Based Rotation** - Daily, weekly, and monthly goal rotation with automatic expiry
-✅ **2 Progress Modes** - Absolute (lifetime stats) and Relative (baseline-relative for rotation)
-✅ **Rotation Status API** - `GET /v1/challenges/{id}/rotation` for schedule info
-✅ **Lazy Rotation Detection** - Returning players get rotation updates on Initialize
+- ✅ **Time-Based Rotation** - Daily, weekly, and monthly goal rotation with automatic expiry
+- ✅ **2 Progress Modes** - Absolute (lifetime stats) and Relative (baseline-relative for rotation)
+- ✅ **Rotation Status API** - `GET /v1/challenges/{id}/rotation` for schedule info
+- ✅ **Lazy Rotation Detection** - Returning players get rotation updates on Initialize
 
 **M4:**
-✅ **Batch Goal Selection** - Select multiple goals at once
-✅ **Random Goal Selection** - System picks random goals from pool
+- ✅ **Batch Goal Selection** - Select multiple goals at once
+- ✅ **Random Goal Selection** - System picks random goals from pool
 
 **M3:**
-✅ **Goal Assignment Control** - Users manage which goals they actively work on
-✅ **Initialize Endpoint** - One-call setup for new players (16.84ms P95, 316x optimized)
+- ✅ **Goal Assignment Control** - Users manage which goals they actively work on
+- ✅ **Initialize Endpoint** - One-call setup for new players (16.84ms P95, 316x optimized)
 
 **Core Features:**
-✅ **Config-First Design** - Define challenges in `challenges.json`, no admin UI needed
-✅ **Event-Driven Progress** - Real-time updates via AGS IAM login and Statistic events
-✅ **High Performance** - Buffered processing with 1,000,000× DB query reduction via unified COPY path
-✅ **Prerequisites** - Chain goals together with dependency management
-✅ **AGS Integration** - Automatic reward grants (ITEM entitlements, WALLET credits)
-✅ **Production-Ready** - 96%+ test coverage, observability, horizontal scaling validated
+- ✅ **Config-First Design** - Define challenges in `challenges.json`, no admin UI needed
+- ✅ **Event-Driven Progress** - Real-time updates via AGS IAM login and Statistic events
+- ✅ **High Performance** - Buffered processing with 1,000,000× DB query reduction via unified COPY path
+- ✅ **Prerequisites** - Chain goals together with dependency management
+- ✅ **AGS Integration** - Automatic reward grants (ITEM entitlements, WALLET credits)
+- ✅ **Production-Ready** - 96%+ test coverage, observability, horizontal scaling validated
 
 ---
 
