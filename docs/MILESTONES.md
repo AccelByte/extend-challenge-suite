@@ -24,6 +24,7 @@ This document outlines the progressive feature rollout for the Challenge Service
 - **Milestone 3**: ✅ Complete (Goal assignment control with performance optimization)
 - **Milestone 4**: ✅ Complete (Batch & random goal selection)
 - **Milestone 5**: ✅ Complete (Time-based rotation with ProgressMode)
+- **Milestone 6**: 📋 Planned (Expired row cleanup)
 - **Backlog**: 5 feature sets for future development
 
 ---
@@ -1388,9 +1389,90 @@ Flow:
 
 ---
 
+## Milestone 6: Expired Row Cleanup
+
+**Status:** 📋 Planned
+**Target Demo:** Background cleanup keeps `user_goal_progress` table size bounded by deleting expired rows after a 7-day grace period
+**Dependencies:** M5 (Time-Based Rotation)
+**Technical Spec:** [TECH_SPEC_M6.md](./TECH_SPEC_M6.md)
+
+### Features
+
+#### Background Cleanup Goroutine
+- Runs inside `extend-challenge-service` (no external cron)
+- Configurable interval (default: 1 hour), retention period (default: 7 days), batch size (default: 1,000)
+- Batched DELETEs with 50ms pause between batches to avoid lock contention
+- Idempotent — safe to run on multiple replicas without distributed lock
+
+#### Database Changes
+- New partial index on `expires_at` for efficient expired row lookup
+- Migration: `003_add_expired_cleanup_index` (partial B-tree index)
+- CTE + `ctid` pattern for batched deletes with LIMIT
+
+#### GDPR User Deletion
+- `DeleteUserData(ctx, userID)` method on `GoalRepository` interface
+- Partition-optimal: uses `user_id` (partition key) for single-partition scan
+
+#### Observability
+- Prometheus metrics: rows deleted, cycle duration, cycle count, errors
+- Structured logging per cleanup cycle (total_deleted, batches, duration_ms)
+
+#### Configuration
+- `CLEANUP_ENABLED` (bool), `CLEANUP_INTERVAL` (seconds), `CLEANUP_RETENTION_DAYS` (int), `CLEANUP_BATCH_SIZE` (int)
+- New `GetEnvBool` helper in `pkg/common/utils.go`
+
+### Success Criteria
+
+✅ Cleanup goroutine deletes expired rows after 7-day retention period
+✅ Table size stays bounded after multiple rotation cycles (no indefinite growth)
+✅ API latency not degraded while cleanup runs (< 5% p95 increase)
+✅ Batch DELETE latency < 20ms per 1,000 rows
+✅ 100K expired rows cleaned in < 60 seconds
+✅ Cleanup works correctly with hash-partitioned table (cross-partition scan)
+✅ GDPR `DeleteUserData` deletes all rows for a user in < 5ms
+✅ All tests pass with >= 80% coverage
+✅ Linter reports 0 issues
+✅ Graceful shutdown stops cleanup goroutine cleanly
+
+### Example Use Cases
+
+**Use Case 1: Routine Expired Row Cleanup**
+```
+Background goroutine runs hourly:
+1. Calculate cutoff = NOW() - 7 days
+2. Query: SELECT ctid FROM user_goal_progress WHERE expires_at < cutoff LIMIT 1000
+3. Delete batch of 1,000 rows (~15ms)
+4. Sleep 50ms
+5. Repeat until no more rows match
+6. Log: "cleanup cycle complete, total_deleted=4523, batches=5, duration_ms=487"
+```
+
+**Use Case 2: Load Test Data Accumulation Prevention**
+```
+Without M6:
+- After 10 rotation cycles: 1.1M rows → DB max query time 4,163ms
+- After 50 rotation cycles: ~5.5M rows → service unusable
+
+With M6:
+- After 10 rotation cycles: ~565K active rows + cleanup removes expired
+- Table size stays proportional to active goals only
+- DB max query time stays < 134ms
+```
+
+**Use Case 3: GDPR Right to Erasure**
+```
+Admin receives deletion request for user "user-12345":
+1. Call repo.DeleteUserData(ctx, "user-12345")
+2. Single query: DELETE FROM user_goal_progress WHERE user_id = 'user-12345'
+3. Partition-optimal: routes to single partition (~1ms)
+4. Returns count of deleted rows for audit log
+```
+
+---
+
 ## Backlog: Future Milestones
 
-Features planned for post-M5 development, prioritized by user value and technical complexity.
+Features planned for post-M6 development, prioritized by user value and technical complexity.
 
 ### Backlog Item 1: Multiple Challenges & Tagging
 
@@ -1608,28 +1690,39 @@ export async function assignGoals(userId: string, challengeId: string): Promise<
 - Implement selection algorithm (pure random + weighted)
 - Add multi-goal activation support
 
-### Phase 5: M5 Auto Rotation
+### Phase 5: M5 Auto Rotation ✅ COMPLETE
 **Duration:** 2 weeks
-**Dependencies:** M3 complete
+**Dependencies:** M3, M4 complete
+**Status:** ✅ Complete
+
+- ✅ Add rotation configuration to challenges.json schema
+- ✅ Implement ProgressMode (absolute/relative) with baseline tracking
+- ✅ Implement lazy rotation detection at read time
+- ✅ Build rotation logic (reset/keep progress, deactivate goals)
+- ✅ Implement `GET /v1/challenges/{id}/rotation` endpoint
+- ✅ Unified COPY flush path for event processing
+- ✅ GC optimization (76% CPU reduction)
+
+### Phase 6: M6 Expired Row Cleanup
+**Duration:** ~1 week (6 days)
+**Dependencies:** M5 complete
 **Status:** 📋 Planned
 
-- Add rotation configuration to challenges.json schema
-- Add `rotation_id` and `rotation_start_date` to database
-- Implement cron scheduler with goroutine
-- Implement distributed lock (Redis) for multi-instance safety
-- Build rotation logic (reset/keep progress, deactivate goals)
-- Implement `GET /v1/challenges/{id}/rotation` endpoint
-- Test rotation boundary behavior
+- Database migration: partial index on `expires_at`
+- `GetEnvBool` helper and cleanup configuration
+- Repository methods: `DeleteExpiredRows`, `DeleteUserData`
+- Background cleanup goroutine with batched deletes
+- Prometheus metrics and structured logging
+- Integration and load testing
 
 ---
 
 ### Progress Summary
 
-**Completed:** 4 weeks (M1 + M2 + M3)
-**Remaining:** 3 weeks (M4-M5)
-**Total Estimated Duration:** 7 weeks
+**Completed:** M1 + M2 + M3 + M4 + M5
+**Next:** M6 (~1 week)
 
-**Current Status:** ✅ M1, M2, and M3 complete. System is production-ready with comprehensive load testing and performance optimizations. M3 achieved 316x improvement on initialize endpoint and validated system scaling requirements. Ready to proceed with M4 feature development.
+**Current Status:** ✅ M1-M5 complete. System is production-ready with time-based rotation, GC optimization (76% CPU reduction), and comprehensive load testing. M6 (expired row cleanup) is next to address table growth from rotating goals.
 
 ---
 
@@ -1670,6 +1763,10 @@ export async function assignGoals(userId: string, challengeId: string): Promise<
 - **M2 Brainstorm**: [BRAINSTORM_M2.md](./BRAINSTORM_M2.md)
 - **M3 Technical Spec**: [TECH_SPEC_M3.md](./TECH_SPEC_M3.md)
 - **M3 Load Test Results**: [M3_LOADTEST_RESULTS.md](./M3_LOADTEST_RESULTS.md) ⭐
+- **M5 Technical Spec**: [TECH_SPEC_M5.md](./TECH_SPEC_M5.md)
+
+### Planned Milestones
+- **M6 Technical Spec**: [TECH_SPEC_M6.md](./TECH_SPEC_M6.md)
 
 ### Architecture & Design
 - **Database Design**: [TECH_SPEC_DATABASE.md](./TECH_SPEC_DATABASE.md)
@@ -1680,4 +1777,4 @@ export async function assignGoals(userId: string, challengeId: string): Promise<
 ---
 
 **Document Status:** Active - Updated as milestones progress
-**Last Updated:** 2025-11-13 (M3 completion)
+**Last Updated:** 2026-03-02 (M6 spec added)
