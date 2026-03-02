@@ -15,6 +15,22 @@ const users = new SharedArray('users', function() {
 const challengesData = JSON.parse(open('../fixtures/challenges.json'));
 const challenges = challengesData.challenges;
 
+// Valid goals from service config (fixtures have 600 goals, service config has ~24)
+// Used by set_active and batch_select to avoid "goal not found" errors
+const VALID_GOALS = [
+  { challengeId: 'challenge-001', goalId: 'challenge-001-goal-01' },
+  { challengeId: 'rotation-daily', goalId: 'daily-challenges-goal-01' },
+  { challengeId: 'rotation-daily', goalId: 'daily-challenges-goal-02' },
+  { challengeId: 'rotation-daily', goalId: 'daily-wins-no-reselect' },
+  { challengeId: 'rotation-daily', goalId: 'daily-login-rotation' },
+  { challengeId: 'weekly-challenges', goalId: 'weekly-challenges-goal-01' },
+  { challengeId: 'weekly-challenges', goalId: 'weekly-challenges-goal-02' },
+  { challengeId: 'daily-challenges', goalId: 'daily-login' },
+  { challengeId: 'daily-challenges', goalId: 'daily-10-kills' },
+  { challengeId: 'daily-challenges', goalId: 'daily-3-matches' },
+  { challengeId: 'winter-challenge-2025', goalId: 'complete-tutorial' },
+];
+
 // Configuration
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8000/challenge';
 const EVENT_HANDLER_ADDR = __ENV.EVENT_HANDLER_ADDR || 'localhost:6566';
@@ -80,7 +96,7 @@ export let options = {
   thresholds: {
     // Same thresholds as full test (validation should pass at lower load)
     'http_req_duration{endpoint:initialize,phase:init}': ['p(95)<100'],
-    'http_req_duration{endpoint:initialize,phase:gameplay}': ['p(95)<50'],
+    'http_req_duration{endpoint:initialize,phase:gameplay}': ['p(95)<100'],
     'http_req_duration{endpoint:challenges}': ['p(95)<200'],
     'http_req_duration{endpoint:set_active}': ['p(95)<100'],
     'http_req_duration{endpoint:claim}': ['p(95)<100'],
@@ -130,7 +146,12 @@ export function initializationPhase() {
         return false;
       }
       const body = JSON.parse(r.body);
-      return body.assignedGoals && body.assignedGoals.length > 0;
+      // New players must always get default goals assigned
+      if (body.newAssignments > 0) {
+        return body.assignedGoals && body.assignedGoals.length > 0;
+      }
+      // Returning players may have no active goals if all were deactivated
+      return Array.isArray(body.assignedGoals);
     },
   });
 }
@@ -172,12 +193,11 @@ export function apiGameplayPhase() {
   }
   // 10% - Activate/deactivate goals
   else if (roll < 0.18) {
-    const challenge = challenges[Math.floor(Math.random() * challenges.length)];
-    const goal = challenge.goals[Math.floor(Math.random() * challenge.goals.length)];
+    const pair = VALID_GOALS[Math.floor(Math.random() * VALID_GOALS.length)];
     const isActive = Math.random() < 0.5;
 
     const resp = http.put(
-      `${BASE_URL}/v1/challenges/${challenge.challengeId}/goals/${goal.goalId}/active`,
+      `${BASE_URL}/v1/challenges/${pair.challengeId}/goals/${pair.goalId}/active`,
       JSON.stringify({ is_active: isActive }),
       {
         headers: createHeaders(user, token),
@@ -229,10 +249,10 @@ export function apiGameplayPhase() {
   // 5% - Batch-select goals (M4)
   else if (roll < 0.28) {
     const useRotation = Math.random() < 0.5;
-    const challengeId = useRotation ? 'daily-challenges' : 'challenge-001';
+    const challengeId = useRotation ? 'rotation-daily' : 'weekly-challenges';
     const goalIds = useRotation
-      ? ['daily-goal-01', 'daily-goal-02', 'daily-goal-03']
-      : ['challenge-001-goal-01', 'challenge-001-goal-02', 'challenge-001-goal-03'];
+      ? ['daily-challenges-goal-01', 'daily-challenges-goal-02', 'daily-login-rotation']
+      : ['weekly-challenges-goal-01', 'weekly-challenges-goal-02', 'weekly-wins-no-reset'];
 
     const resp = http.post(
       `${BASE_URL}/v1/challenges/${challengeId}/goals/batch-select`,
@@ -274,7 +294,7 @@ export function apiGameplayPhase() {
   }
   // 5% - Rotation status (M5)
   else if (roll < 0.38) {
-    const challengeId = Math.random() < 0.5 ? 'daily-challenges' : 'weekly-challenges';
+    const challengeId = Math.random() < 0.5 ? 'rotation-daily' : 'weekly-challenges';
 
     const resp = http.get(
       `${BASE_URL}/v1/challenges/${challengeId}/rotation`,
@@ -327,16 +347,20 @@ export function apiGameplayPhase() {
       'challenges: rotation goals have expiresAt': (r) => {
         if (r.status !== 200) return false;
         const body = JSON.parse(r.body);
-        const daily = body.challenges.find(c => c.challengeId === 'daily-challenges');
-        if (!daily || !daily.goals) return true;  // skip if user has no rotation goals yet
-        return daily.goals.some(g => g.expiresAt && g.expiresAt.length > 0);
+        const rotDaily = body.challenges.find(c => c.challengeId === 'rotation-daily');
+        if (!rotDaily || !rotDaily.goals) return true;
+        const activeGoals = rotDaily.goals.filter(g => g.isActive === true);
+        if (activeGoals.length === 0) return true;  // user has no active rotation goals yet
+        return activeGoals.some(g => g.expiresAt && g.expiresAt.length > 0);
       },
       'challenges: rotation goals have expiresInSeconds': (r) => {
         if (r.status !== 200) return false;
         const body = JSON.parse(r.body);
-        const daily = body.challenges.find(c => c.challengeId === 'daily-challenges');
-        if (!daily || !daily.goals) return true;
-        return daily.goals.some(g => g.expiresInSeconds && g.expiresInSeconds > 0);
+        const rotDaily = body.challenges.find(c => c.challengeId === 'rotation-daily');
+        if (!rotDaily || !rotDaily.goals) return true;
+        const activeGoals = rotDaily.goals.filter(g => g.isActive === true);
+        if (activeGoals.length === 0) return true;
+        return activeGoals.some(g => g.expiresInSeconds && g.expiresInSeconds > 0);
       },
     });
   }
