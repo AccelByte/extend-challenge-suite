@@ -35,6 +35,9 @@ Thumbs.db
 # Logs
 *.log
 
+# Profiling data
+*.pprof
+
 # Temporary files
 tmp/
 temp/
