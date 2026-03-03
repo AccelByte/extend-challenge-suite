@@ -416,6 +416,8 @@ func (r *PostgresGoalRepository) DeleteUserData(ctx context.Context, namespace s
 | **Performance** | Single-partition scan, ~1ms for typical user |
 | **Exposure** | Exposed via `DELETE /v1/users/me/data` REST endpoint (JWT-authenticated) |
 
+> **Warning:** The `/v1/users/me/data` endpoint in `service.swagger.json` is a manual entry (marked with `x-manual-entry: true`). Running `make proto` will regenerate the swagger file from `.proto` definitions and **overwrite this entry**. After regeneration, re-add the GDPR path manually.
+
 ---
 
 ## Partition Compatibility
@@ -484,13 +486,13 @@ This routes to a **single partition** — same performance as non-partitioned (~
   **`MockGoalRepository` stubs (5 files) — add `DeleteExpiredRows` and `DeleteUserData` methods:**
   1. `extend-challenge-event-handler/pkg/buffered/buffered_repository_test.go` — `MockGoalRepository` at line 26 (uses `testify/mock`):
     ```go
-    func (m *MockGoalRepository) DeleteExpiredRows(ctx context.Context, cutoff time.Time, batchSize int) (int64, error) {
-        args := m.Called(ctx, cutoff, batchSize)
+    func (m *MockGoalRepository) DeleteExpiredRows(ctx context.Context, namespace string, cutoff time.Time, batchSize int) (int64, error) {
+        args := m.Called(ctx, namespace, cutoff, batchSize)
         return args.Get(0).(int64), args.Error(1)
     }
 
-    func (m *MockGoalRepository) DeleteUserData(ctx context.Context, userID string) (int64, error) {
-        args := m.Called(ctx, userID)
+    func (m *MockGoalRepository) DeleteUserData(ctx context.Context, namespace string, userID string) (int64, error) {
+        args := m.Called(ctx, namespace, userID)
         return args.Get(0).(int64), args.Error(1)
     }
     ```
