@@ -453,23 +453,23 @@ This routes to a **single partition** — same performance as non-partitioned (~
 ## Implementation Phases
 
 ### Phase 1: Database Migration & Index (0.5 days)
-- [ ] Create `extend-challenge-service/migrations/003_add_expired_cleanup_index.up.sql` with partial index on `expires_at`
-- [ ] Create `extend-challenge-service/migrations/003_add_expired_cleanup_index.down.sql`
-- [ ] Test migration runs cleanly on fresh DB and with existing data
-- [ ] Verify index is used by EXPLAIN ANALYZE on cleanup query
+- [x] Create `extend-challenge-service/migrations/003_add_expired_cleanup_index.up.sql` with partial index on `expires_at`
+- [x] Create `extend-challenge-service/migrations/003_add_expired_cleanup_index.down.sql`
+- [x] Test migration runs cleanly on fresh DB and with existing data
+- [x] Verify index is used by EXPLAIN ANALYZE on cleanup query
 
 ### Phase 2: `GetEnvBool` Helper & Configuration (0.5 days)
-- [ ] Add `GetEnvBool` to `extend-challenge-service/pkg/common/utils.go`
-- [ ] Add unit tests for `GetEnvBool` (true/false/1/0/yes/no/empty/invalid)
-- [ ] Create `CleanupConfig` struct and `NewCleanupConfigFromEnv()`
-- [ ] Add unit tests for config defaults and overrides
+- [x] Add `GetEnvBool` to `extend-challenge-service/pkg/common/utils.go`
+- [x] Add unit tests for `GetEnvBool` (true/false/1/0/yes/no/empty/invalid)
+- [x] Create `CleanupConfig` struct and `NewCleanupConfigFromEnv()`
+- [x] Add unit tests for config defaults and overrides
 
 ### Phase 3: Repository Methods (1 day)
-- [ ] Add `DeleteExpiredRows(ctx, cutoff, batchSize)` to `GoalRepository` interface
-- [ ] Add `DeleteUserData(ctx, userID)` to `GoalRepository` interface
-- [ ] Implement `DeleteExpiredRows` in `PostgresGoalRepository` using CTE + primary key
-- [ ] Implement `DeleteUserData` in `PostgresGoalRepository`
-- [ ] Update all mock and implementation structs (adding `DeleteExpiredRows` and `DeleteUserData` stubs/implementations):
+- [x] Add `DeleteExpiredRows(ctx, cutoff, batchSize)` to `GoalRepository` interface
+- [x] Add `DeleteUserData(ctx, userID)` to `GoalRepository` interface
+- [x] Implement `DeleteExpiredRows` in `PostgresGoalRepository` using CTE + primary key
+- [x] Implement `DeleteUserData` in `PostgresGoalRepository`
+- [x] Update all mock and implementation structs (adding `DeleteExpiredRows` and `DeleteUserData` stubs/implementations):
 
   **`MockGoalRepository` stubs (5 files) — add `DeleteExpiredRows` and `DeleteUserData` methods:**
   1. `extend-challenge-event-handler/pkg/buffered/buffered_repository_test.go` — `MockGoalRepository` at line 26 (uses `testify/mock`):
@@ -495,7 +495,7 @@ This routes to a **single partition** — same performance as non-partitioned (~
   **`MockTxRepository` stubs (2 files) — same reason as above:**
   7. `extend-challenge-service/pkg/server/challenge_service_server_test.go` — `MockTxGoalRepository` at line 175: add same stubs
   8. `extend-challenge-service/pkg/service/claim_test.go` — `MockTxRepository` at line 41: add same stubs
-- [ ] Write integration tests following the pattern in `extend-challenge-common/pkg/repository/postgres_goal_repository_test.go`:
+- [x] Write integration tests following the pattern in `extend-challenge-common/pkg/repository/postgres_goal_repository_test.go`:
   - Connect to Docker-compose test DB at `localhost:5433` (DSN: `postgres://testuser:testpass@localhost:5433/testdb?sslmode=disable`)
   - Use inline `setupTestDB()` with `CREATE TABLE IF NOT EXISTS` and `t.Skipf` on connection failure
   - Test cases:
@@ -508,12 +508,12 @@ This routes to a **single partition** — same performance as non-partitioned (~
 
 Create all files in `extend-challenge-service/pkg/cleanup/`. Start with metrics (referenced by cleanup.go):
 
-- [ ] Create `pkg/cleanup/metrics.go` — Prometheus metrics vars and `Collectors()` function (see [Observability](#observability))
-- [ ] Create `pkg/cleanup/cleanup.go` — `Cleaner` interface, `StartCleanupGoroutine`, `runCleanupCycle` with metrics wired in
-- [ ] Add structured logging for each cycle (`total_deleted`, `batches`, `duration_ms`, `cutoff`)
-- [ ] Add error logging with context (`batch` number, `total_deleted` so far)
-- [ ] Verify metrics appear in `Collectors()` return value
-- [ ] Write unit tests with mock `Cleaner`:
+- [x] Create `pkg/cleanup/metrics.go` — Prometheus metrics vars and `Collectors()` function (see [Observability](#observability))
+- [x] Create `pkg/cleanup/cleanup.go` — `Cleaner` interface, `StartCleanupGoroutine`, `runCleanupCycle` with metrics wired in
+- [x] Add structured logging for each cycle (`total_deleted`, `batches`, `duration_ms`, `cutoff`)
+- [x] Add error logging with context (`batch` number, `total_deleted` so far)
+- [x] Verify metrics appear in `Collectors()` return value
+- [x] Write unit tests with mock `Cleaner`:
   - Verify cleanup is skipped when `Enabled = false`
   - Verify cleanup calls `DeleteExpiredRows` with correct cutoff
   - Verify cleanup stops when `ctx` is cancelled
@@ -533,26 +533,26 @@ Wire cleanup into `extend-challenge-service/main.go` using these exact variables
 | Prometheus registry | `prometheusRegistry` | `*prometheus.Registry` | 330 |
 | Insert point | After `MustRegister(...)` block | Before metrics HTTP goroutine | 335→337 |
 
-- [ ] Add `"extend-challenge-service/pkg/cleanup"` to imports
-- [ ] Insert after `MustRegister(...)` block (line 335), before metrics HTTP goroutine (line 337):
+- [x] Add `"extend-challenge-service/pkg/cleanup"` to imports
+- [x] Insert after `MustRegister(...)` block (line 335), before metrics HTTP goroutine (line 337):
   ```go
   cleanupCfg := cleanup.NewCleanupConfigFromEnv()
   prometheusRegistry.MustRegister(cleanup.Collectors()...)
   go cleanup.StartCleanupGoroutine(ctx, goalRepo, cleanupCfg, slogLogger)
   ```
-- [ ] Verify graceful shutdown stops cleanup (context cancellation propagates)
-- [ ] Add `CLEANUP_*` env vars to `.env.example` and to the `challenge-service` service's `environment:` section in `docker-compose.yml` (not the event handler — the cleanup goroutine only runs in the backend service)
+- [x] Verify graceful shutdown stops cleanup (context cancellation propagates)
+- [x] Add `CLEANUP_*` env vars to `.env.example` and to the `challenge-service` service's `environment:` section in `docker-compose.yml` (not the event handler — the cleanup goroutine only runs in the backend service)
 
 ### Phase 6: Documentation (0.5 days)
 
 **Priority 1 — Must-do (blocks "M6 complete" claim):**
-- [ ] `docs/STATUS.md`:
+- [x] `docs/STATUS.md`:
   - Add row: `| M6 | Expired Row Cleanup | Complete | TECH_SPEC_M6.md |`
   - Update "Next Milestone" section to M7 or Backlog
-- [ ] `docs/MILESTONES.md`:
+- [x] `docs/MILESTONES.md`:
   - Update M6 status from "Planned" to "Complete"
   - Add features: background cleanup goroutine, GDPR `DeleteUserData`, partial index, Prometheus metrics
-- [ ] `docs/INDEX.md`:
+- [x] `docs/INDEX.md`:
   - Update version header from "M5" to "M6"
   - Add M6 section under Technical Specifications:
     ```
@@ -561,11 +561,11 @@ Wire cleanup into `extend-challenge-service/main.go` using these exact variables
     ```
 
 **Priority 2 — Should-do (improves cross-reference accuracy):**
-- [ ] `docs/TECH_SPEC_DATABASE.md`:
+- [x] `docs/TECH_SPEC_DATABASE.md`:
   - Add `003_add_expired_cleanup_index` to migrations list
   - Add `idx_user_goal_progress_expires_at` partial index to indexes section
   - Add `DeleteExpiredRows` (CTE + PK batch delete) and `DeleteUserData` to queries section
-- [ ] `docs/TECH_SPEC_OBSERVABILITY.md` — add cleanup metrics to catalog:
+- [x] `docs/TECH_SPEC_OBSERVABILITY.md` — add cleanup metrics to catalog:
 
   | Metric | Type | Description |
   |--------|------|-------------|
@@ -575,14 +575,14 @@ Wire cleanup into `extend-challenge-service/main.go` using these exact variables
   | `challenge_cleanup_errors_total` | Counter | Total cleanup cycle errors |
 
 **Priority 3 — Nice-to-have:**
-- [ ] `README.md` — add feature bullet: "Automatic expired row cleanup with configurable retention"
-- [ ] `extend-challenge-service/README.md` — document `CLEANUP_*` environment variables
-- [ ] `extend-challenge-common/pkg/repository/README_TESTS.md` — add coverage for `DeleteExpiredRows` and `DeleteUserData`
-- [ ] `tests/loadtest/README.md` — add Scenario 6 section (see Phase 7)
+- [x] `README.md` — add feature bullet: "Automatic expired row cleanup with configurable retention"
+- [x] `extend-challenge-service/README.md` — document `CLEANUP_*` environment variables
+- [x] `extend-challenge-common/pkg/repository/README_TESTS.md` — add coverage for `DeleteExpiredRows` and `DeleteUserData`
+- [x] `tests/loadtest/README.md` — add Scenario 6 section (see Phase 7)
 
 **Verification:**
-- [ ] All doc links resolve (no broken cross-references)
-- [ ] `docs/INDEX.md` version header updated to M6
+- [x] All doc links resolve (no broken cross-references)
+- [x] `docs/INDEX.md` version header updated to M6
 
 ### Phase 7: Load Testing (1 day) — DEFERRED
 
