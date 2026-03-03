@@ -231,6 +231,9 @@ challenge_cleanup_cycles_total
 
 // Total cleanup cycle errors (counter)
 challenge_cleanup_errors_total
+
+// Total panic-recovery restarts (counter)
+challenge_cleanup_panics_total
 ```
 
 | Metric | Type | Description |
@@ -239,6 +242,7 @@ challenge_cleanup_errors_total
 | `challenge_cleanup_duration_seconds` | Histogram | Duration of each cleanup cycle |
 | `challenge_cleanup_cycles_total` | Counter | Total cleanup cycles executed |
 | `challenge_cleanup_errors_total` | Counter | Total cleanup cycle errors |
+| `challenge_cleanup_panics_total` | Counter | Total panic-recovery restarts |
 
 **Package:** `extend-challenge-service/pkg/cleanup/metrics.go`
 **Registration:** Uses `Collectors()` pattern for custom Prometheus registry — see [TECH_SPEC_M6.md](./TECH_SPEC_M6.md#observability) for details.
@@ -260,6 +264,9 @@ sum(challenge_cleanup_errors_total)
 
 # Average cycle duration across replicas
 avg(rate(challenge_cleanup_duration_seconds_sum[5m]) / rate(challenge_cleanup_duration_seconds_count[5m]))
+
+# Total panics across all replicas
+sum(challenge_cleanup_panics_total)
 ```
 
 ### GDPR Audit Logging
@@ -374,7 +381,48 @@ groups:
         for: 5m
         annotations:
           summary: "API p95 latency > 500ms"
+
+  - name: challenge_cleanup
+    rules:
+      - alert: CleanupErrorRate
+        expr: rate(challenge_cleanup_errors_total[15m]) > 0
+        for: 15m
+        annotations:
+          summary: "Cleanup goroutine encountering persistent errors"
+          runbook: "Check database connectivity and disk space. Errors cause the cycle to abort and retry on the next interval."
+
+      - alert: CleanupPanicRestart
+        expr: increase(challenge_cleanup_panics_total[1h]) > 0
+        for: 0m
+        annotations:
+          summary: "Cleanup goroutine recovered from a panic"
+          runbook: "Check logs for panic stack trace. The goroutine auto-restarts up to 3 times with exponential backoff. After 3 panics, cleanup stops until the service is restarted."
+
+      - alert: CleanupStalled
+        expr: increase(challenge_cleanup_cycles_total[2h]) == 0
+        for: 2h
+        annotations:
+          summary: "No cleanup cycles executed in 2 hours"
+          runbook: "Verify CLEANUP_ENABLED=true and that the service is running. Check /healthz for liveness. The cleanup goroutine may have exhausted its panic restarts."
+
+      - alert: CleanupHighDuration
+        expr: histogram_quantile(0.95, challenge_cleanup_duration_seconds) > 60
+        for: 10m
+        annotations:
+          summary: "Cleanup cycle p95 duration > 60 seconds"
+          runbook: "Large backlog of expired rows. Consider temporarily increasing CLEANUP_MAX_BATCHES_PER_CYCLE or decreasing CLEANUP_INTERVAL_MINUTES."
 ```
+
+#### Cleanup Alert Response Guide
+
+| Alert | Likely Cause | Response |
+|-------|-------------|----------|
+| `CleanupErrorRate` | Database connection issues or disk full | Check PostgreSQL logs and connectivity |
+| `CleanupPanicRestart` | Bug in cleanup code or unexpected nil | Check service logs for panic stack trace |
+| `CleanupStalled` | Service down, cleanup disabled, or all restarts exhausted | Verify service health and CLEANUP_ENABLED setting |
+| `CleanupHighDuration` | Large expired row backlog | Increase `CLEANUP_MAX_BATCHES_PER_CYCLE` temporarily |
+
+**Note on cleanup goroutine liveness:** The `/healthz` endpoint does not fail when the cleanup goroutine is down — it only logs a warning. This is intentional: cleanup is a background optimization, not a critical service function. The service remains fully functional without cleanup; the only consequence is gradual table growth.
 
 ---
 

@@ -175,18 +175,26 @@ The cleanup config, goroutine, and Prometheus metrics all live in `extend-challe
 ```go
 // CleanupConfig holds configuration for the expired row cleanup goroutine.
 type CleanupConfig struct {
-    Enabled       bool
-    Interval      time.Duration
-    RetentionDays int
-    BatchSize     int
+    Enabled            bool
+    Interval           time.Duration
+    RetentionDays      int
+    BatchSize          int
+    MaxBatchesPerCycle int // Max batches per cycle (default 100)
+    BatchPauseMs       int // Pause between batches in milliseconds (default 50, min 10, max 5000)
+    InitialMaxBatches  int // Max batches per cycle during initial turbo mode (default 1000)
+    InitialCycles      int // Number of initial cycles to use turbo mode (default 3)
 }
 
 func NewCleanupConfigFromEnv() CleanupConfig {
     return CleanupConfig{
-        Enabled:       common.GetEnvBool("CLEANUP_ENABLED", true),
-        Interval:      time.Duration(common.GetEnvInt("CLEANUP_INTERVAL_MINUTES", 60)) * time.Minute,
-        RetentionDays: common.GetEnvInt("CLEANUP_RETENTION_DAYS", 7),
-        BatchSize:     common.GetEnvInt("CLEANUP_BATCH_SIZE", 1000),
+        Enabled:            common.GetEnvBool("CLEANUP_ENABLED", true),
+        Interval:           time.Duration(common.GetEnvInt("CLEANUP_INTERVAL_MINUTES", 60)) * time.Minute,
+        RetentionDays:      common.GetEnvInt("CLEANUP_RETENTION_DAYS", 7),
+        BatchSize:          common.GetEnvInt("CLEANUP_BATCH_SIZE", 1000),
+        MaxBatchesPerCycle: common.GetEnvInt("CLEANUP_MAX_BATCHES_PER_CYCLE", 100),
+        BatchPauseMs:       common.GetEnvInt("CLEANUP_BATCH_PAUSE_MS", 50),
+        InitialMaxBatches:  common.GetEnvInt("CLEANUP_INITIAL_MAX_BATCHES", 1000),
+        InitialCycles:      common.GetEnvInt("CLEANUP_INITIAL_CYCLES", 3),
     }
 }
 ```
@@ -521,7 +529,7 @@ Create all files in `extend-challenge-service/pkg/cleanup/`. Start with metrics 
   - Verify cleanup stops when `ctx` is cancelled
   - Verify cleanup logs error and increments `cleanupErrors` counter on failure
   - Verify cleanup loops until `deleted < batchSize`
-  - Verify `Collectors()` returns all 4 metrics
+  - Verify `Collectors()` returns all 5 metrics
 
 ### Phase 5: Service Integration (0.5 days)
 
@@ -575,6 +583,7 @@ Wire cleanup into `extend-challenge-service/main.go` using these exact variables
   | `challenge_cleanup_duration_seconds` | Histogram | Duration of each cleanup cycle |
   | `challenge_cleanup_cycles_total` | Counter | Total cleanup cycles executed |
   | `challenge_cleanup_errors_total` | Counter | Total cleanup cycle errors |
+  | `challenge_cleanup_panics_total` | Counter | Total panic-recovery restarts |
 
 **Priority 3 — Nice-to-have:**
 - [x] `README.md` — add feature bullet: "Automatic expired row cleanup with configurable retention"
@@ -753,6 +762,7 @@ func Collectors() []prometheus.Collector {
         cleanupDuration,
         cleanupCyclesTotal,
         cleanupErrors,
+        cleanupPanics,
     }
 }
 
@@ -776,6 +786,11 @@ var (
     cleanupErrors = prometheus.NewCounter(prometheus.CounterOpts{
         Name: "challenge_cleanup_errors_total",
         Help: "Total number of cleanup cycle errors",
+    })
+
+    cleanupPanics = prometheus.NewCounter(prometheus.CounterOpts{
+        Name: "challenge_cleanup_panics_total",
+        Help: "Total number of panic-recovery restarts in the cleanup goroutine.",
     })
 )
 ```
@@ -812,6 +827,35 @@ Error logging includes context for debugging:
   "total_deleted": 2000
 }
 ```
+
+---
+
+## Known Behaviors
+
+### Transient Zombie Rows from Event Handler Flush
+
+When the cleanup goroutine deletes an expired row, the event handler's buffered flush may re-create it via UPSERT if the user triggers a stat event for an expired goal between deletion and the next rotation boundary. This is **self-healing**: the re-created row will have the same `expires_at` value (already in the past), so the next cleanup cycle will delete it again. No operator intervention is needed.
+
+### GDPR + Cleanup Simultaneous Deletion
+
+If a GDPR `DELETE /v1/users/me/data` request runs concurrently with a cleanup cycle, both may attempt to delete the same rows. This is safe because `DELETE` is idempotent — one succeeds and the other finds 0 matching rows. However, the `rowsDeleted` count in either the GDPR response or the cleanup cycle log may under-report the actual number of rows that existed before deletion. This has no functional impact.
+
+### CTE Namespace Filter Not in DELETE JOIN
+
+The cleanup query's CTE includes `AND namespace = $3` but the DELETE join uses only `(user_id, goal_id)`:
+
+```sql
+WITH expired AS (
+    SELECT user_id, goal_id FROM user_goal_progress
+    WHERE expires_at IS NOT NULL AND expires_at < $1 AND namespace = $3
+    LIMIT $2
+)
+DELETE FROM user_goal_progress USING expired
+WHERE user_goal_progress.user_id = expired.user_id
+  AND user_goal_progress.goal_id = expired.goal_id;
+```
+
+This is safe because `(user_id, goal_id)` is a globally unique primary key — a row identified in the CTE by namespace cannot collide with a different row in another namespace. The namespace filter in the CTE exists to scope the scan, not to protect the DELETE.
 
 ---
 

@@ -1121,7 +1121,7 @@ This returns only the rotation schedule and timing, without user progress or goa
 
 **Authentication:** Required (JWT Bearer token)
 
-**Description:** Deletes all `user_goal_progress` rows for the authenticated user within the service's namespace. Supports GDPR Right to Erasure compliance. The operation is namespace-scoped (uses namespace from JWT) and idempotent (calling on a user with no data returns `rowsDeleted: 0`).
+**Description:** Deletes all `user_goal_progress` rows for the authenticated user within the service's namespace. Supports GDPR Right to Erasure compliance. The operation is namespace-scoped (uses the service's configured namespace) and idempotent (calling on a user with no data returns `rowsDeleted: 0`).
 
 **Request:**
 ```http
@@ -1129,7 +1129,7 @@ DELETE /v1/users/me/data
 Authorization: Bearer <JWT_TOKEN>
 ```
 
-No request body required. User ID and namespace are extracted from the JWT token.
+No request body required. User ID is extracted from the JWT token. Namespace is taken from the service configuration.
 
 **Response (200 OK):**
 ```json
@@ -1148,10 +1148,13 @@ No request body required. User ID and namespace are extracted from the JWT token
 | 500 | `INTERNAL_ERROR` | Database error during deletion |
 
 **Behavior Notes:**
-- **Namespace-scoped:** Only deletes rows matching the namespace from the JWT token
+- **Namespace-scoped:** Only deletes rows matching the service's configured namespace
 - **Idempotent:** Safe to call multiple times; returns `rowsDeleted: 0` if no data exists
 - **Audit logged:** Deletion count is logged with user ID for compliance audit trails
 - **No confirmation required:** Deletion is immediate and irreversible
+
+**Known Limitations:**
+- **No application-level rate limiting:** Rate limiting should be configured at the API gateway level.
 
 **SQL:**
 ```sql
