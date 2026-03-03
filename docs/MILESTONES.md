@@ -1461,9 +1461,9 @@ With M6:
 
 **Use Case 3: GDPR Right to Erasure**
 ```
-Admin receives deletion request for user "user-12345":
-1. Call repo.DeleteUserData(ctx, "user-12345")
-2. Single query: DELETE FROM user_goal_progress WHERE user_id = 'user-12345'
+User requests data deletion via DELETE /v1/users/me/data:
+1. Call repo.DeleteUserData(ctx, namespace, "user-12345")
+2. Single query: DELETE FROM user_goal_progress WHERE user_id = 'user-12345' AND namespace = 'game-ns'
 3. Partition-optimal: routes to single partition (~1ms)
 4. Returns count of deleted rows for audit log
 ```

@@ -78,6 +78,7 @@ CREATE TABLE user_goal_progress (
 - `GET /v1/challenges/{challenge_id}` - Get specific challenge with user's progress
 - `POST /v1/challenges/{challenge_id}/goals/{goal_id}/claim` - Claim reward for completed goal
 - `GET /v1/challenges/{challenge_id}/rotation` - Get rotation schedule and current period info (M5)
+- `DELETE /v1/users/me/data` - Delete all user goal progress data (GDPR, M6)
 - `GET /healthz` - Liveness probe
 
 All endpoints require AGS IAM Bearer token authentication (JWT validation).

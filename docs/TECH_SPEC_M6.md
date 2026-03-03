@@ -119,13 +119,13 @@ Add to `GoalRepository` interface in `extend-challenge-common/pkg/repository/goa
 // Returns the number of rows deleted in this batch (up to batchSize).
 // Caller loops until returned count < batchSize to drain all expired rows.
 // Uses CTE with primary key for partition-safe batched deletes with LIMIT.
-DeleteExpiredRows(ctx context.Context, cutoff time.Time, batchSize int) (int64, error)
+DeleteExpiredRows(ctx context.Context, namespace string, cutoff time.Time, batchSize int) (int64, error)
 
 // M6: GDPR user data deletion
 
 // DeleteUserData deletes all rows for a specific user.
 // Partition-optimal: includes user_id which is the partition key.
-DeleteUserData(ctx context.Context, userID string) (int64, error)
+DeleteUserData(ctx context.Context, namespace string, userID string) (int64, error)
 ```
 
 ---
@@ -218,6 +218,7 @@ WITH expired AS (
     FROM user_goal_progress
     WHERE expires_at IS NOT NULL
       AND expires_at < $1  -- cutoff = NOW() - retention_period
+      AND namespace = $3
     LIMIT $2               -- batch_size (default: 1000)
 )
 DELETE FROM user_goal_progress
@@ -239,13 +240,14 @@ WHERE user_goal_progress.user_id = expired.user_id
 ```go
 // DeleteExpiredRows deletes up to batchSize rows where expires_at < cutoff.
 // Returns the number of rows deleted in this batch (up to batchSize).
-func (r *PostgresGoalRepository) DeleteExpiredRows(ctx context.Context, cutoff time.Time, batchSize int) (int64, error) {
+func (r *PostgresGoalRepository) DeleteExpiredRows(ctx context.Context, namespace string, cutoff time.Time, batchSize int) (int64, error) {
     query := `
         WITH expired AS (
             SELECT user_id, goal_id
             FROM user_goal_progress
             WHERE expires_at IS NOT NULL
               AND expires_at < $1
+              AND namespace = $3
             LIMIT $2
         )
         DELETE FROM user_goal_progress
@@ -253,7 +255,7 @@ func (r *PostgresGoalRepository) DeleteExpiredRows(ctx context.Context, cutoff t
         WHERE user_goal_progress.user_id = expired.user_id
           AND user_goal_progress.goal_id = expired.goal_id`
 
-    result, err := r.db.ExecContext(ctx, query, cutoff, batchSize)
+    result, err := r.db.ExecContext(ctx, query, cutoff, batchSize, namespace)
     if err != nil {
         return 0, fmt.Errorf("delete expired rows: %w", err)
     }
@@ -275,10 +277,10 @@ func (r *PostgresGoalRepository) DeleteExpiredRows(ctx context.Context, cutoff t
 // Cleaner is the minimal interface needed by the cleanup goroutine.
 // PostgresGoalRepository satisfies this implicitly — no need for the full GoalRepository.
 type Cleaner interface {
-    DeleteExpiredRows(ctx context.Context, cutoff time.Time, batchSize int) (int64, error)
+    DeleteExpiredRows(ctx context.Context, namespace string, cutoff time.Time, batchSize int) (int64, error)
 }
 
-func StartCleanupGoroutine(ctx context.Context, repo Cleaner, cfg CleanupConfig, logger *slog.Logger) {
+func StartCleanupGoroutine(ctx context.Context, repo repository.GoalRepository, cfg CleanupConfig, namespace string, status *CleanupStatus, logger *slog.Logger) {
     if !cfg.Enabled {
         logger.Info("cleanup goroutine disabled")
         return
@@ -311,7 +313,7 @@ func runCleanupCycle(ctx context.Context, repo Cleaner, cfg CleanupConfig, logge
     start := time.Now()
 
     for {
-        deleted, err := repo.DeleteExpiredRows(ctx, cutoff, cfg.BatchSize)
+        deleted, err := repo.DeleteExpiredRows(ctx, namespace, cutoff, cfg.BatchSize)
         if err != nil {
             logger.Error("cleanup batch failed",
                 "error", err,
@@ -381,10 +383,10 @@ M6 adds a `DeleteUserData` method to the `GoalRepository` interface for GDPR com
 
 ```go
 // DeleteUserData deletes all rows for a specific user.
-func (r *PostgresGoalRepository) DeleteUserData(ctx context.Context, userID string) (int64, error) {
+func (r *PostgresGoalRepository) DeleteUserData(ctx context.Context, namespace string, userID string) (int64, error) {
     result, err := r.db.ExecContext(ctx,
-        "DELETE FROM user_goal_progress WHERE user_id = $1",
-        userID,
+        "DELETE FROM user_goal_progress WHERE user_id = $1 AND namespace = $2",
+        userID, namespace,
     )
     if err != nil {
         return 0, fmt.Errorf("delete user data: %w", err)
@@ -401,10 +403,10 @@ func (r *PostgresGoalRepository) DeleteUserData(ctx context.Context, userID stri
 
 | Property | Value |
 |----------|-------|
-| **Query** | `DELETE FROM user_goal_progress WHERE user_id = $1` |
+| **Query** | `DELETE FROM user_goal_progress WHERE user_id = $1 AND namespace = $2` |
 | **Partition-optimal** | Yes — `user_id` is the partition key |
 | **Performance** | Single-partition scan, ~1ms for typical user |
-| **Exposure** | Not exposed via REST API in M6 (admin tool or future GDPR endpoint) |
+| **Exposure** | Exposed via `DELETE /v1/users/me/data` REST endpoint (JWT-authenticated) |
 
 ---
 
@@ -444,7 +446,7 @@ The cleanup query filters by `expires_at` (not `user_id`), so it must scan all p
 
 Unlike cleanup, GDPR deletion includes `user_id`:
 ```sql
-DELETE FROM user_goal_progress WHERE user_id = $1
+DELETE FROM user_goal_progress WHERE user_id = $1 AND namespace = $2
 ```
 This routes to a **single partition** — same performance as non-partitioned (~1ms).
 

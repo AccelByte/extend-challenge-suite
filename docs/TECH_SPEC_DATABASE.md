@@ -359,7 +359,7 @@ BatchUpsertGoalActive(ctx context.Context, progresses []*domain.UserGoalProgress
 // Returns the number of rows deleted in this batch (up to batchSize).
 // Caller loops until returned count < batchSize to drain all expired rows.
 // Uses CTE with USING join for partition-safe batched deletes.
-DeleteExpiredRows(ctx context.Context, cutoff time.Time, batchSize int) (int64, error)
+DeleteExpiredRows(ctx context.Context, namespace string, cutoff time.Time, batchSize int) (int64, error)
 ```
 
 **SQL:**
@@ -368,6 +368,7 @@ WITH expired AS (
     SELECT user_id, goal_id
     FROM user_goal_progress
     WHERE expires_at IS NOT NULL AND expires_at < $1
+      AND namespace = $3
     LIMIT $2
 )
 DELETE FROM user_goal_progress
@@ -383,12 +384,12 @@ WHERE user_goal_progress.user_id = expired.user_id
 ```go
 // DeleteUserData deletes all rows for a specific user.
 // Partition-optimal: includes user_id which is the partition key.
-DeleteUserData(ctx context.Context, userID string) (int64, error)
+DeleteUserData(ctx context.Context, namespace string, userID string) (int64, error)
 ```
 
 **SQL:**
 ```sql
-DELETE FROM user_goal_progress WHERE user_id = $1
+DELETE FROM user_goal_progress WHERE user_id = $1 AND namespace = $2
 ```
 
 **Performance:** ~1ms (single-partition scan)
@@ -1902,11 +1903,13 @@ func (r *PostgresGoalRepository) Ping(ctx context.Context) error {
 - **Orphaned Rows**: If goal removed from config, row remains in DB (ignored by API)
 - **Manual Cleanup**: Game developers can run DELETE queries if needed
 
-### Future: GDPR Data Deletion
+### GDPR Data Deletion (M6)
 ```sql
 -- Delete all data for user
-DELETE FROM user_goal_progress WHERE user_id = $1;
+DELETE FROM user_goal_progress WHERE user_id = $1 AND namespace = $2;
 ```
+
+Implemented in M6. Exposed via `DELETE /v1/users/me/data`. See [TECH_SPEC_M6.md](./TECH_SPEC_M6.md).
 
 ---
 
