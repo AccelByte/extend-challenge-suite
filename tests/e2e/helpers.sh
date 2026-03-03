@@ -1203,7 +1203,163 @@ complete_goal() {
     
     # Trigger event to update stat to target value
     run_cli trigger-event stat-update --stat-code="$stat_code" --value="$target" > /dev/null 2>&1
-    
+
     # Wait for event processing
     wait_for_flush 2
+}
+
+# ============================================================================
+# M6: Cleanup Helpers
+# ============================================================================
+
+# Insert an expired row (expires_at = NOW() - days_ago)
+# Usage: insert_expired_row <user_id> <goal_id> <challenge_id> <status> <days_ago>
+insert_expired_row() {
+    local user_id="$1"
+    local goal_id="$2"
+    local challenge_id="$3"
+    local status="$4"
+    local days_ago="$5"
+
+    if [ -z "$user_id" ] || [ -z "$goal_id" ] || [ -z "$challenge_id" ] || [ -z "$status" ] || [ -z "$days_ago" ]; then
+        error_exit "insert_expired_row requires user_id, goal_id, challenge_id, status, days_ago"
+    fi
+
+    docker compose exec -T postgres \
+        psql -U postgres -d challenge_db \
+        -c "INSERT INTO user_goal_progress (user_id, goal_id, challenge_id, namespace, progress, status, is_active, expires_at, created_at, updated_at) VALUES ('$user_id', '$goal_id', '$challenge_id', '${NAMESPACE}', 0, '$status', false, NOW() - INTERVAL '$days_ago days', NOW(), NOW());" \
+        > /dev/null 2>&1
+}
+
+# Insert a permanent row (expires_at = NULL)
+# Usage: insert_permanent_row <user_id> <goal_id> <challenge_id> <status>
+insert_permanent_row() {
+    local user_id="$1"
+    local goal_id="$2"
+    local challenge_id="$3"
+    local status="$4"
+
+    if [ -z "$user_id" ] || [ -z "$goal_id" ] || [ -z "$challenge_id" ] || [ -z "$status" ]; then
+        error_exit "insert_permanent_row requires user_id, goal_id, challenge_id, status"
+    fi
+
+    docker compose exec -T postgres \
+        psql -U postgres -d challenge_db \
+        -c "INSERT INTO user_goal_progress (user_id, goal_id, challenge_id, namespace, progress, status, is_active, created_at, updated_at) VALUES ('$user_id', '$goal_id', '$challenge_id', '${NAMESPACE}', 0, '$status', true, NOW(), NOW());" \
+        > /dev/null 2>&1
+}
+
+# Run the cleanup CTE DELETE query directly, prints deleted count
+# Usage: run_cleanup_query <retention_days> <batch_size>
+run_cleanup_query() {
+    local retention_days="$1"
+    local batch_size="$2"
+
+    if [ -z "$retention_days" ] || [ -z "$batch_size" ]; then
+        error_exit "run_cleanup_query requires retention_days and batch_size"
+    fi
+
+    local total_deleted=0
+    while true; do
+        local deleted
+        deleted=$(docker compose exec -T postgres \
+            psql -U postgres -d challenge_db -t -A \
+            -c "WITH expired AS (SELECT user_id, goal_id FROM user_goal_progress WHERE expires_at IS NOT NULL AND expires_at < NOW() - INTERVAL '$retention_days days' LIMIT $batch_size) DELETE FROM user_goal_progress USING expired WHERE user_goal_progress.user_id = expired.user_id AND user_goal_progress.goal_id = expired.goal_id;" 2>/dev/null | tr -d '[:space:]')
+
+        # Extract row count from DELETE output (format: "DELETE N")
+        local count
+        count=$(echo "$deleted" | sed 's/DELETE//' | tr -d '[:space:]')
+        if [ -z "$count" ] || [ "$count" = "0" ]; then
+            break
+        fi
+        total_deleted=$((total_deleted + count))
+
+        if [ "$count" -lt "$batch_size" ]; then
+            break
+        fi
+    done
+
+    echo "$total_deleted"
+}
+
+# Count rows for a specific user
+# Usage: count_user_rows <user_id>
+count_user_rows() {
+    local user_id="$1"
+
+    if [ -z "$user_id" ]; then
+        error_exit "count_user_rows requires user_id"
+    fi
+
+    docker compose exec -T postgres \
+        psql -U postgres -d challenge_db -t -A \
+        -c "SELECT COUNT(*) FROM user_goal_progress WHERE user_id = '$user_id';" 2>/dev/null | tr -d '[:space:]'
+}
+
+# Count expired rows past retention
+# Usage: count_expired_rows <retention_days>
+count_expired_rows() {
+    local retention_days="$1"
+
+    if [ -z "$retention_days" ]; then
+        error_exit "count_expired_rows requires retention_days"
+    fi
+
+    docker compose exec -T postgres \
+        psql -U postgres -d challenge_db -t -A \
+        -c "SELECT COUNT(*) FROM user_goal_progress WHERE expires_at IS NOT NULL AND expires_at < NOW() - INTERVAL '$retention_days days';" 2>/dev/null | tr -d '[:space:]'
+}
+
+# Delete all data for a user (GDPR), prints deleted count
+# Usage: delete_user_data <user_id>
+delete_user_data() {
+    local user_id="$1"
+
+    if [ -z "$user_id" ]; then
+        error_exit "delete_user_data requires user_id"
+    fi
+
+    local result
+    result=$(docker compose exec -T postgres \
+        psql -U postgres -d challenge_db -t -A \
+        -c "DELETE FROM user_goal_progress WHERE user_id = '$user_id';" 2>/dev/null | tr -d '[:space:]')
+
+    # Extract count from "DELETE N"
+    echo "$result" | sed 's/DELETE//' | tr -d '[:space:]'
+}
+
+# Verify the cleanup partial index exists
+# Usage: verify_cleanup_index
+verify_cleanup_index() {
+    local result
+    result=$(docker compose exec -T postgres \
+        psql -U postgres -d challenge_db -t -A \
+        -c "SELECT indexname FROM pg_indexes WHERE tablename = 'user_goal_progress' AND indexname = 'idx_user_goal_progress_expires_at';" 2>/dev/null | tr -d '[:space:]')
+
+    if [ "$result" = "idx_user_goal_progress_expires_at" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Check cleanup Prometheus metrics are registered
+# Usage: check_cleanup_metrics
+check_cleanup_metrics() {
+    local metrics
+    metrics=$(curl -s http://localhost:8080/metrics 2>/dev/null)
+
+    local all_present=true
+    for metric_name in challenge_cleanup_rows_deleted_total challenge_cleanup_cycles_total challenge_cleanup_errors_total challenge_cleanup_duration_seconds; do
+        if ! echo "$metrics" | grep -q "$metric_name"; then
+            echo "MISSING: $metric_name"
+            all_present=false
+        fi
+    done
+
+    if [ "$all_present" = true ]; then
+        return 0
+    else
+        return 1
+    fi
 }

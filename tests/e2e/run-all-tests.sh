@@ -112,6 +112,10 @@ TESTS=(
     "test-m5-rotation-global-sync.sh"
     "test-m5-rotation-batch-select.sh"
     "test-m5-rotation-never-progressed.sh"
+    # M6 feature tests
+    "test-m6-cleanup-expired.sh"
+    "test-m6-cleanup-gdpr.sh"
+    "test-m6-cleanup-metrics.sh"
     # Error scenario tests
     "test-error-scenarios.sh"
     "test-reward-failures.sh"

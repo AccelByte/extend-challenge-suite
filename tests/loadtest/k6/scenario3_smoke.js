@@ -15,21 +15,23 @@ const users = new SharedArray('users', function() {
 const challengesData = JSON.parse(open('../fixtures/challenges.json'));
 const challenges = challengesData.challenges;
 
-// Valid goals from service config (fixtures have 600 goals, service config has ~24)
-// Used by set_active and batch_select to avoid "goal not found" errors
-const VALID_GOALS = [
-  { challengeId: 'challenge-001', goalId: 'challenge-001-goal-01' },
-  { challengeId: 'rotation-daily', goalId: 'daily-challenges-goal-01' },
-  { challengeId: 'rotation-daily', goalId: 'daily-challenges-goal-02' },
-  { challengeId: 'rotation-daily', goalId: 'daily-wins-no-reselect' },
-  { challengeId: 'rotation-daily', goalId: 'daily-login-rotation' },
-  { challengeId: 'weekly-challenges', goalId: 'weekly-challenges-goal-01' },
-  { challengeId: 'weekly-challenges', goalId: 'weekly-challenges-goal-02' },
-  { challengeId: 'daily-challenges', goalId: 'daily-login' },
-  { challengeId: 'daily-challenges', goalId: 'daily-10-kills' },
-  { challengeId: 'daily-challenges', goalId: 'daily-3-matches' },
-  { challengeId: 'winter-challenge-2025', goalId: 'complete-tutorial' },
-];
+// Build VALID_GOALS dynamically from loaded fixture (works with any config)
+const VALID_GOALS = [];
+for (const ch of challenges) {
+  for (const g of ch.goals) {
+    VALID_GOALS.push({ challengeId: ch.challengeId, goalId: g.goalId });
+  }
+}
+
+// Build lookup of challenge IDs that have rotation config
+const ROTATION_CHALLENGES = challenges
+  .filter(c => c.rotation && c.rotation.enabled)
+  .map(c => c.challengeId);
+
+// Build lookup for batch-select: challenges with enough goals (>= 3)
+const BATCH_CHALLENGES = challenges
+  .filter(c => c.goals.length >= 3)
+  .map(c => ({ challengeId: c.challengeId, goalIds: c.goals.map(g => g.goalId) }));
 
 // Configuration
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8000/challenge';
@@ -247,15 +249,14 @@ export function apiGameplayPhase() {
     }
   }
   // 5% - Batch-select goals (M4)
-  else if (roll < 0.28) {
-    const useRotation = Math.random() < 0.5;
-    const challengeId = useRotation ? 'rotation-daily' : 'weekly-challenges';
-    const goalIds = useRotation
-      ? ['daily-challenges-goal-01', 'daily-challenges-goal-02', 'daily-login-rotation']
-      : ['weekly-challenges-goal-01', 'weekly-challenges-goal-02', 'weekly-wins-no-reset'];
+  else if (roll < 0.28 && BATCH_CHALLENGES.length > 0) {
+    const bc = BATCH_CHALLENGES[Math.floor(Math.random() * BATCH_CHALLENGES.length)];
+    // Pick 3 random goals from this challenge
+    const shuffled = bc.goalIds.slice().sort(() => Math.random() - 0.5);
+    const goalIds = shuffled.slice(0, 3);
 
     const resp = http.post(
-      `${BASE_URL}/v1/challenges/${challengeId}/goals/batch-select`,
+      `${BASE_URL}/v1/challenges/${bc.challengeId}/goals/batch-select`,
       JSON.stringify({ goal_ids: goalIds, replace_existing: false }),
       { headers: createHeaders(user, token), tags: { endpoint: 'batch_select' } }
     );
@@ -294,7 +295,10 @@ export function apiGameplayPhase() {
   }
   // 5% - Rotation status (M5)
   else if (roll < 0.38) {
-    const challengeId = Math.random() < 0.5 ? 'rotation-daily' : 'weekly-challenges';
+    // Use a rotation-enabled challenge if available, otherwise any challenge
+    const challengeId = ROTATION_CHALLENGES.length > 0
+      ? ROTATION_CHALLENGES[Math.floor(Math.random() * ROTATION_CHALLENGES.length)]
+      : challenges[Math.floor(Math.random() * challenges.length)].challengeId;
 
     const resp = http.get(
       `${BASE_URL}/v1/challenges/${challengeId}/rotation`,
@@ -306,11 +310,15 @@ export function apiGameplayPhase() {
       'rotation_status: enabled': (r) => {
         if (r.status !== 200) return false;
         const body = JSON.parse(r.body);
+        // If no rotation challenges exist in config, rotation.enabled=false is valid
+        if (ROTATION_CHALLENGES.length === 0) return true;
         return body.rotation && body.rotation.enabled === true;
       },
       'rotation_status: has expiresInSeconds': (r) => {
         if (r.status !== 200) return false;
         const body = JSON.parse(r.body);
+        // If no rotation challenges exist in config, skip this check
+        if (ROTATION_CHALLENGES.length === 0) return true;
         return body.rotation && body.rotation.currentPeriod &&
                body.rotation.currentPeriod.expiresInSeconds > 0;
       },
@@ -346,19 +354,21 @@ export function apiGameplayPhase() {
       },
       'challenges: rotation goals have expiresAt': (r) => {
         if (r.status !== 200) return false;
+        if (ROTATION_CHALLENGES.length === 0) return true;  // no rotation in this config
         const body = JSON.parse(r.body);
-        const rotDaily = body.challenges.find(c => c.challengeId === 'rotation-daily');
-        if (!rotDaily || !rotDaily.goals) return true;
-        const activeGoals = rotDaily.goals.filter(g => g.isActive === true);
+        const rotChallenge = body.challenges.find(c => ROTATION_CHALLENGES.includes(c.challengeId));
+        if (!rotChallenge || !rotChallenge.goals) return true;
+        const activeGoals = rotChallenge.goals.filter(g => g.isActive === true);
         if (activeGoals.length === 0) return true;  // user has no active rotation goals yet
         return activeGoals.some(g => g.expiresAt && g.expiresAt.length > 0);
       },
       'challenges: rotation goals have expiresInSeconds': (r) => {
         if (r.status !== 200) return false;
+        if (ROTATION_CHALLENGES.length === 0) return true;  // no rotation in this config
         const body = JSON.parse(r.body);
-        const rotDaily = body.challenges.find(c => c.challengeId === 'rotation-daily');
-        if (!rotDaily || !rotDaily.goals) return true;
-        const activeGoals = rotDaily.goals.filter(g => g.isActive === true);
+        const rotChallenge = body.challenges.find(c => ROTATION_CHALLENGES.includes(c.challengeId));
+        if (!rotChallenge || !rotChallenge.goals) return true;
+        const activeGoals = rotChallenge.goals.filter(g => g.isActive === true);
         if (activeGoals.length === 0) return true;
         return activeGoals.some(g => g.expiresInSeconds && g.expiresInSeconds > 0);
       },

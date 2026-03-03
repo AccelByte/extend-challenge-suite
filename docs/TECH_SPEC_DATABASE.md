@@ -151,6 +151,12 @@ CREATE INDEX idx_user_goal_lookup ON user_goal_progress(user_id, goal_id);
 CREATE INDEX idx_user_goal_active_only
 ON user_goal_progress(user_id)
 WHERE is_active = true;
+
+-- M6: Partial index for expired row cleanup
+-- Used by DeleteExpiredRows() for efficient batch deletion
+CREATE INDEX idx_user_goal_progress_expires_at
+ON user_goal_progress(expires_at)
+WHERE expires_at IS NOT NULL;
 ```
 
 ### Index Usage Analysis
@@ -215,6 +221,19 @@ WHERE user_id = $1 AND is_active = true;
 **Impact:** Improves cache hit path for initialization endpoint
 
 **Note on Index Redundancy:** `idx_user_goal_active_only` and `idx_user_goal_progress_user_active` have overlapping functionality. The former is a simple user_id index with WHERE clause, while the latter is a composite (user_id, is_active) index. Both are partial indexes. In practice, PostgreSQL will choose the most efficient based on query structure
+
+#### M6 Expired Row Cleanup Index
+
+**Query Pattern:**
+```sql
+SELECT user_id, goal_id FROM user_goal_progress
+WHERE expires_at IS NOT NULL AND expires_at < $1
+LIMIT $2;
+```
+**Index Used:** `idx_user_goal_progress_expires_at` (partial index)
+**Usage:** Background cleanup goroutine — `DeleteExpiredRows` batched delete
+**Performance:** < 20ms per 1,000-row batch
+**Size impact:** Small — only rotating goals have non-NULL `expires_at`
 
 ---
 
@@ -332,6 +351,49 @@ BatchUpsertGoalActive(ctx context.Context, progresses []*domain.UserGoalProgress
 **M5 Note:** `BatchUpsertProgressWithCOPY` is the unified flush method that handles both `absolute` and `relative` ProgressMode in a single batch. The previous split of `BatchUpsertProgress` (for absolute) and `BatchIncrementProgress` (for increment) has been consolidated. See [TECH_SPEC_M5.md](./TECH_SPEC_M5.md) for full details.
 
 **M4 Note:** Goal activation operations (setting `is_active=true`) still use dedicated batch method for efficient random/batch selection endpoints. See [TECH_SPEC_M4.md](./TECH_SPEC_M4.md) for usage context.
+
+#### DeleteExpiredRows - Batched Cleanup (M6)
+
+```go
+// DeleteExpiredRows deletes up to batchSize rows where expires_at < cutoff.
+// Returns the number of rows deleted in this batch (up to batchSize).
+// Caller loops until returned count < batchSize to drain all expired rows.
+// Uses CTE with USING join for partition-safe batched deletes.
+DeleteExpiredRows(ctx context.Context, cutoff time.Time, batchSize int) (int64, error)
+```
+
+**SQL:**
+```sql
+WITH expired AS (
+    SELECT user_id, goal_id
+    FROM user_goal_progress
+    WHERE expires_at IS NOT NULL AND expires_at < $1
+    LIMIT $2
+)
+DELETE FROM user_goal_progress
+USING expired
+WHERE user_goal_progress.user_id = expired.user_id
+  AND user_goal_progress.goal_id = expired.goal_id
+```
+
+**Performance:** < 20ms per 1,000-row batch
+
+#### DeleteUserData - GDPR Deletion (M6)
+
+```go
+// DeleteUserData deletes all rows for a specific user.
+// Partition-optimal: includes user_id which is the partition key.
+DeleteUserData(ctx context.Context, userID string) (int64, error)
+```
+
+**SQL:**
+```sql
+DELETE FROM user_goal_progress WHERE user_id = $1
+```
+
+**Performance:** ~1ms (single-partition scan)
+
+See [TECH_SPEC_M6.md](./TECH_SPEC_M6.md) for full cleanup algorithm and configuration details.
 
 ---
 
@@ -1419,7 +1481,9 @@ sudo mv migrate /usr/local/bin/
 extend-challenge-service/
 └── migrations/
     ├── 001_create_user_goal_progress.up.sql
-    └── 001_create_user_goal_progress.down.sql
+    ├── 001_create_user_goal_progress.down.sql
+    ├── 003_add_expired_cleanup_index.up.sql
+    └── 003_add_expired_cleanup_index.down.sql
 ```
 
 #### 001_create_user_goal_progress.up.sql
@@ -1488,6 +1552,23 @@ DROP INDEX IF EXISTS idx_user_goal_progress_user_challenge;
 -- Drop table
 DROP TABLE IF EXISTS user_goal_progress;
 ```
+
+#### 003_add_expired_cleanup_index.up.sql
+
+```sql
+-- M6: Partial index for expired row cleanup
+CREATE INDEX IF NOT EXISTS idx_user_goal_progress_expires_at
+ON user_goal_progress(expires_at)
+WHERE expires_at IS NOT NULL;
+```
+
+#### 003_add_expired_cleanup_index.down.sql
+
+```sql
+DROP INDEX IF EXISTS idx_user_goal_progress_expires_at;
+```
+
+> **Why 003?** Migration `002_add_baseline_value.up.sql` already exists for the M5 `baseline_value` column.
 
 ### Migration Commands
 

@@ -217,6 +217,32 @@ challengeAPIRequestDuration.WithLabelValues(
 ).Observe(time.Since(start).Seconds())
 ```
 
+#### M6 Cleanup Metrics
+
+```go
+// Total expired rows deleted by cleanup (counter)
+challenge_cleanup_rows_deleted_total
+
+// Duration of each cleanup cycle (histogram, DefBuckets)
+challenge_cleanup_duration_seconds
+
+// Total cleanup cycles executed (counter)
+challenge_cleanup_cycles_total
+
+// Total cleanup cycle errors (counter)
+challenge_cleanup_errors_total
+```
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `challenge_cleanup_rows_deleted_total` | Counter | Total expired rows deleted by cleanup |
+| `challenge_cleanup_duration_seconds` | Histogram | Duration of each cleanup cycle |
+| `challenge_cleanup_cycles_total` | Counter | Total cleanup cycles executed |
+| `challenge_cleanup_errors_total` | Counter | Total cleanup cycle errors |
+
+**Package:** `extend-challenge-service/pkg/cleanup/metrics.go`
+**Registration:** Uses `Collectors()` pattern for custom Prometheus registry — see [TECH_SPEC_M6.md](./TECH_SPEC_M6.md#observability) for details.
+
 ### Deferred to M2+
 
 **More detailed metrics (not in M1):**
