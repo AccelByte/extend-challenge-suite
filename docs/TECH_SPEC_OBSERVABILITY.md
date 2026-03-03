@@ -243,6 +243,59 @@ challenge_cleanup_errors_total
 **Package:** `extend-challenge-service/pkg/cleanup/metrics.go`
 **Registration:** Uses `Collectors()` pattern for custom Prometheus registry — see [TECH_SPEC_M6.md](./TECH_SPEC_M6.md#observability) for details.
 
+#### Multi-Replica Considerations
+
+Cleanup metrics are per-replica counters. When running multiple replicas, each independently deletes expired rows (idempotent DELETE is safe for concurrent execution).
+
+**PromQL aggregation:**
+```promql
+# Total rows deleted across all replicas
+sum(challenge_cleanup_rows_deleted_total)
+
+# Total cycles across all replicas
+sum(challenge_cleanup_cycles_total)
+
+# Total errors across all replicas
+sum(challenge_cleanup_errors_total)
+
+# Average cycle duration across replicas
+avg(rate(challenge_cleanup_duration_seconds_sum[5m]) / rate(challenge_cleanup_duration_seconds_count[5m]))
+```
+
+### GDPR Audit Logging
+
+GDPR user data deletion requests produce audit log entries for compliance tracking. Both success and failure paths emit structured logs with `audit=true` for easy filtering.
+
+**Success log:**
+```json
+{
+  "level": "info",
+  "msg": "GDPR deletion completed",
+  "userId": "user-123",
+  "rowsDeleted": 5,
+  "audit": true,
+  "auditAction": "gdpr_user_data_deletion",
+  "namespace": "game-namespace",
+  "requestedAt": "2025-10-17T10:30:00Z"
+}
+```
+
+**Failure log:**
+```json
+{
+  "level": "error",
+  "msg": "GDPR deletion failed",
+  "userId": "user-123",
+  "error": "database connection lost",
+  "audit": true,
+  "auditAction": "gdpr_user_data_deletion_failed",
+  "namespace": "game-namespace",
+  "requestedAt": "2025-10-17T10:30:00Z"
+}
+```
+
+**Recommended retention:** GDPR audit logs should be retained for at least 3 years per regulatory requirements. Configure log aggregation pipeline to filter on `audit=true` and route to a long-retention store.
+
 ### Deferred to M2+
 
 **More detailed metrics (not in M1):**

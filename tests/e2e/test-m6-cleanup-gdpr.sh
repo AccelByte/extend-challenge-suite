@@ -88,13 +88,54 @@ assert_equals "0" "$DELETED" "Second delete should return 0 rows"
 echo -e "${GREEN}done${NC}: idempotent ($DELETED rows deleted)"
 
 #============================================================================
-# Step 7: Clean up
+# Step 7: HTTP endpoint — seed rows, delete via REST, verify JSON response
 #============================================================================
-print_step 7 "Clean up test data"
+print_step 7 "Test GDPR deletion via HTTP endpoint"
+
+USER_HTTP="test-user-m6-gdpr-HTTP"
+
+# Seed 3 rows for HTTP test user
+docker compose exec -T postgres \
+    psql -U postgres -d challenge_db \
+    -c "DELETE FROM user_goal_progress WHERE user_id = '$USER_HTTP';" \
+    > /dev/null 2>&1
+insert_permanent_row "$USER_HTTP" "gdpr-http-01" "ch-gdpr" "completed"
+insert_permanent_row "$USER_HTTP" "gdpr-http-02" "ch-gdpr" "in_progress"
+insert_permanent_row "$USER_HTTP" "gdpr-http-03" "ch-gdpr" "not_started"
+
+COUNT_HTTP=$(count_user_rows "$USER_HTTP")
+assert_equals "3" "$COUNT_HTTP" "HTTP user should have 3 rows before deletion"
+
+# Call HTTP GDPR endpoint
+RESPONSE=$(delete_user_data_http "$USER_HTTP")
+ROWS_DELETED=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('rowsDeleted',0))" 2>/dev/null || echo "PARSE_ERROR")
+assert_equals "3" "$ROWS_DELETED" "HTTP response rowsDeleted should be 3"
+
+# Verify rows are gone
+COUNT_HTTP=$(count_user_rows "$USER_HTTP")
+assert_equals "0" "$COUNT_HTTP" "HTTP user should have 0 rows after deletion"
+
+echo -e "${GREEN}done${NC}: HTTP GDPR endpoint returned rowsDeleted=$ROWS_DELETED"
+
+#============================================================================
+# Step 8: HTTP endpoint — idempotent re-delete returns 0
+#============================================================================
+print_step 8 "HTTP GDPR idempotency check"
+
+RESPONSE=$(delete_user_data_http "$USER_HTTP")
+ROWS_DELETED=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('rowsDeleted',0))" 2>/dev/null || echo "PARSE_ERROR")
+assert_equals "0" "$ROWS_DELETED" "Re-delete should return rowsDeleted=0"
+
+echo -e "${GREEN}done${NC}: idempotent ($ROWS_DELETED rows)"
+
+#============================================================================
+# Step 9: Clean up
+#============================================================================
+print_step 9 "Clean up test data"
 
 docker compose exec -T postgres \
     psql -U postgres -d challenge_db \
-    -c "DELETE FROM user_goal_progress WHERE user_id IN ('$USER_A', '$USER_B');" \
+    -c "DELETE FROM user_goal_progress WHERE user_id IN ('$USER_A', '$USER_B', '$USER_HTTP');" \
     > /dev/null 2>&1
 echo -e "${GREEN}done${NC}"
 

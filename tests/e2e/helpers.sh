@@ -1363,3 +1363,18 @@ check_cleanup_metrics() {
         return 1
     fi
 }
+
+# Delete user data via HTTP GDPR endpoint
+# Usage: delete_user_data_http <user_id>
+# Returns: JSON response with userId and rowsDeleted
+delete_user_data_http() {
+    local user_id="$1"
+
+    if [ -z "$user_id" ]; then
+        error_exit "delete_user_data_http requires user_id"
+    fi
+
+    curl -s -X DELETE "${BACKEND_URL}/v1/users/me/data" \
+        -H "x-mock-user-id: $user_id" \
+        -H "Content-Type: application/json"
+}
