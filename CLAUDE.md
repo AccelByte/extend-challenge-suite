@@ -444,7 +444,8 @@ extend-challenge/
   - M2: Performance Profiling & Load Testing ✅
   - M3: Per-User Goal Activation Control ✅
   - M4: Batch & Random Goal Selection ✅
-  - M5: Time-Based Rotation ← **Current**
+  - M5: Time-Based Rotation ✅
+  - M6: Expired Row Cleanup ✅
   - Backlog: Multiple challenges, prerequisites, advanced rules
 
 - **[docs/TECH_SPEC_DATABASE_PARTITIONING.md](./docs/TECH_SPEC_DATABASE_PARTITIONING.md)** - Scaling strategy
