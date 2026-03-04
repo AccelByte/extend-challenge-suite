@@ -1145,16 +1145,16 @@ No request body required. User ID is extracted from the JWT token. Namespace is 
 |--------|-----------|-------------|
 | 401 | `UNAUTHORIZED` | Missing or invalid JWT token |
 | 405 | `METHOD_NOT_ALLOWED` | Wrong HTTP method |
+| 429 | `RATE_LIMITED` | Per-user rate limit exceeded (1 request/minute) |
 | 500 | `INTERNAL_ERROR` | Database error during deletion |
 
 **Behavior Notes:**
 - **Namespace-scoped:** Only deletes rows matching the service's configured namespace
+- **Single-namespace only:** Each service deployment operates in one AGS namespace; cross-namespace deletion is not supported
 - **Idempotent:** Safe to call multiple times; returns `rowsDeleted: 0` if no data exists
 - **Audit logged:** Deletion count is logged with user ID for compliance audit trails
 - **No confirmation required:** Deletion is immediate and irreversible
-
-**Known Limitations:**
-- **No application-level rate limiting:** Rate limiting should be configured at the API gateway level.
+- **Rate limited:** Per-user limit of 1 request per minute (per-replica `sync.Map`; not shared across replicas)
 
 **SQL:**
 ```sql

@@ -243,6 +243,7 @@ challenge_cleanup_panics_total
 | `challenge_cleanup_cycles_total` | Counter | Total cleanup cycles executed |
 | `challenge_cleanup_errors_total` | Counter | Total cleanup cycle errors |
 | `challenge_cleanup_panics_total` | Counter | Total panic-recovery restarts |
+| `challenge_cleanup_last_heartbeat_seconds` | Gauge | Unix timestamp (seconds) of last cleanup heartbeat |
 
 **Package:** `extend-challenge-service/pkg/cleanup/metrics.go`
 **Registration:** Uses `Collectors()` pattern for custom Prometheus registry — see [TECH_SPEC_M6.md](./TECH_SPEC_M6.md#observability) for details.
@@ -411,6 +412,13 @@ groups:
         annotations:
           summary: "Cleanup cycle p95 duration > 60 seconds"
           runbook: "Large backlog of expired rows. Consider temporarily increasing CLEANUP_MAX_BATCHES_PER_CYCLE or decreasing CLEANUP_INTERVAL_MINUTES."
+
+      - alert: CleanupGoroutineStale
+        expr: time() - challenge_cleanup_last_heartbeat_seconds > 7200
+        for: 5m
+        annotations:
+          summary: "Cleanup goroutine has not reported a heartbeat in over 2 hours"
+          runbook: "The cleanup goroutine may have crashed or exhausted its restart budget. Check service logs for panic stack traces. Restarting the pod will reset the restart counter."
 ```
 
 #### Cleanup Alert Response Guide
@@ -421,6 +429,7 @@ groups:
 | `CleanupPanicRestart` | Bug in cleanup code or unexpected nil | Check service logs for panic stack trace |
 | `CleanupStalled` | Service down, cleanup disabled, or all restarts exhausted | Verify service health and CLEANUP_ENABLED setting |
 | `CleanupHighDuration` | Large expired row backlog | Increase `CLEANUP_MAX_BATCHES_PER_CYCLE` temporarily |
+| `CleanupGoroutineStale` | Goroutine crashed or all restarts exhausted | Check logs for panic traces; restart the pod |
 
 **Note on cleanup goroutine liveness:** The `/healthz` endpoint does not fail when the cleanup goroutine is down — it only logs a warning. This is intentional: cleanup is a background optimization, not a critical service function. The service remains fully functional without cleanup; the only consequence is gradual table growth.
 
