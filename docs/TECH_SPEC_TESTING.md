@@ -284,37 +284,32 @@ func (m *MockRewardClient) GrantReward(userID string, reward domain.Reward) erro
 }
 ```
 
-### Config Validation Tests (Phase 5.2.2a)
+### Config Validation Tests (Phase 5.2.2a, Updated M5)
 
-**New in Phase 5.2.2a**: Tests for goal type validation, default behavior, and backward compatibility.
+**Updated in M5**: GoalType has been replaced by **ProgressMode** (`absolute` / `relative`) on the `Requirement` struct. The old `GoalTypeIncrement` and `GoalTypeDaily` are no longer valid; use `ProgressModeRelative` for goals that track progress relative to a baseline.
 
-#### Goal Type Validation Tests
+#### ProgressMode Validation Tests
 
 Located in: `extend-challenge-common/pkg/config/validator_test.go`
 
-**Test 1: Valid Goal Types**
+**Test 1: Valid ProgressMode Values**
 
 ```go
-func TestGoalTypeValidation_ValidTypes(t *testing.T) {
+func TestProgressModeValidation_ValidModes(t *testing.T) {
     tests := []struct {
-        name     string
-        goalType domain.GoalType
-        wantErr  bool
+        name         string
+        progressMode domain.ProgressMode
+        wantErr      bool
     }{
         {
-            name:     "absolute type is valid",
-            goalType: domain.GoalTypeAbsolute,
-            wantErr:  false,
+            name:         "absolute mode is valid",
+            progressMode: domain.ProgressModeAbsolute,
+            wantErr:      false,
         },
         {
-            name:     "increment type is valid",
-            goalType: domain.GoalTypeIncrement,
-            wantErr:  false,
-        },
-        {
-            name:     "daily type is valid",
-            goalType: domain.GoalTypeDaily,
-            wantErr:  false,
+            name:         "relative mode is valid",
+            progressMode: domain.ProgressModeRelative,
+            wantErr:      false,
         },
     }
 
@@ -324,11 +319,11 @@ func TestGoalTypeValidation_ValidTypes(t *testing.T) {
                 ID:          "test-goal",
                 Name:        "Test Goal",
                 Description: "Test",
-                Type:        tt.goalType,
                 Requirement: domain.Requirement{
-                    StatCode:    "test_stat",
-                    Operator:    ">=",
-                    TargetValue: 10,
+                    StatCode:     "test_stat",
+                    Operator:     ">=",
+                    TargetValue:  10,
+                    ProgressMode: tt.progressMode,
                 },
                 Reward: domain.Reward{
                     Type:     "WALLET",
@@ -350,29 +345,29 @@ func TestGoalTypeValidation_ValidTypes(t *testing.T) {
 }
 ```
 
-**Test 2: Invalid Goal Types**
+**Test 2: Invalid ProgressMode Values**
 
 ```go
-func TestGoalTypeValidation_InvalidTypes(t *testing.T) {
+func TestProgressModeValidation_InvalidModes(t *testing.T) {
     tests := []struct {
-        name     string
-        goalType domain.GoalType
+        name         string
+        progressMode domain.ProgressMode
     }{
         {
-            name:     "unknown type rejected",
-            goalType: "unknown",
+            name:         "unknown mode rejected",
+            progressMode: "unknown",
         },
         {
-            name:     "weekly type rejected (not supported in M1)",
-            goalType: "weekly",
+            name:         "old increment type rejected",
+            progressMode: "increment",
         },
         {
-            name:     "streak type rejected (not supported in M1)",
-            goalType: "streak",
+            name:         "old daily type rejected",
+            progressMode: "daily",
         },
         {
-            name:     "typo rejected",
-            goalType: "abslute", // typo
+            name:         "typo rejected",
+            progressMode: "abslute", // typo
         },
     }
 
@@ -381,11 +376,11 @@ func TestGoalTypeValidation_InvalidTypes(t *testing.T) {
             goal := &domain.Goal{
                 ID:          "test-goal",
                 Name:        "Test Goal",
-                Type:        tt.goalType,
                 Requirement: domain.Requirement{
-                    StatCode:    "test_stat",
-                    Operator:    ">=",
-                    TargetValue: 10,
+                    StatCode:     "test_stat",
+                    Operator:     ">=",
+                    TargetValue:  10,
+                    ProgressMode: tt.progressMode,
                 },
                 Reward: domain.Reward{
                     Type:     "WALLET",
@@ -398,26 +393,26 @@ func TestGoalTypeValidation_InvalidTypes(t *testing.T) {
             err := validator.ValidateGoal(goal)
 
             assert.Error(t, err)
-            assert.Contains(t, err.Error(), "invalid goal type")
+            assert.Contains(t, err.Error(), "invalid progress mode")
         })
     }
 }
 ```
 
-**Test 3: Default Type Behavior**
+**Test 3: Default ProgressMode Behavior**
 
 ```go
-func TestGoalTypeValidation_DefaultBehavior(t *testing.T) {
-    // Goal without type field
+func TestProgressModeValidation_DefaultBehavior(t *testing.T) {
+    // Goal without explicit progressMode
     goal := &domain.Goal{
         ID:          "test-goal",
         Name:        "Test Goal",
-        Description: "Goal without explicit type",
-        // Type field omitted
+        Description: "Goal without explicit progress mode",
         Requirement: domain.Requirement{
             StatCode:    "test_stat",
             Operator:    ">=",
             TargetValue: 10,
+            // ProgressMode omitted
         },
         Reward: domain.Reward{
             Type:     "WALLET",
@@ -433,27 +428,27 @@ func TestGoalTypeValidation_DefaultBehavior(t *testing.T) {
     assert.NoError(t, err)
 
     // Should default to absolute
-    assert.Equal(t, domain.GoalTypeAbsolute, goal.Type,
-        "Empty type field should default to 'absolute'")
+    assert.Equal(t, domain.ProgressModeAbsolute, goal.Requirement.ProgressMode,
+        "Empty progress mode should default to 'absolute'")
 }
 ```
 
 **Test 4: Backward Compatibility**
 
 ```go
-func TestGoalTypeValidation_BackwardCompatibility(t *testing.T) {
-    // Simulate old config file without type field
+func TestProgressModeValidation_BackwardCompatibility(t *testing.T) {
+    // Simulate old config file without progressMode field
     configJSON := `{
         "challenges": [
             {
                 "id": "old-challenge",
                 "name": "Old Challenge",
-                "description": "From before type field existed",
+                "description": "From before progressMode field existed",
                 "goals": [
                     {
                         "id": "old-goal",
                         "name": "Kill 10 Enemies",
-                        "description": "Old-style goal without type",
+                        "description": "Old-style goal without progressMode",
                         "requirement": {
                             "stat_code": "enemy_kills",
                             "operator": ">=",
@@ -480,10 +475,10 @@ func TestGoalTypeValidation_BackwardCompatibility(t *testing.T) {
     assert.NotNil(t, config)
     assert.Len(t, config.Challenges, 1)
 
-    // Verify default type applied
+    // Verify default progressMode applied
     goal := config.Challenges[0].Goals[0]
-    assert.Equal(t, domain.GoalTypeAbsolute, goal.Type,
-        "Old config without type field should default to 'absolute'")
+    assert.Equal(t, domain.ProgressModeAbsolute, goal.Requirement.ProgressMode,
+        "Old config without progressMode should default to 'absolute'")
 
     // Should pass validation
     validator := NewValidator()
@@ -492,73 +487,12 @@ func TestGoalTypeValidation_BackwardCompatibility(t *testing.T) {
 }
 ```
 
-**Test 5: Daily Flag Validation**
+**Test 5: All Test Fixtures Updated**
 
 ```go
-func TestGoalTypeValidation_DailyFlagConstraints(t *testing.T) {
-    tests := []struct {
-        name    string
-        goal    *domain.Goal
-        wantErr bool
-        errMsg  string
-    }{
-        {
-            name: "daily flag valid with increment type",
-            goal: &domain.Goal{
-                ID:          "daily-login",
-                Name:        "Daily Login",
-                Type:        domain.GoalTypeIncrement,
-                Daily:       true,
-                Requirement: domain.Requirement{
-                    StatCode:    "login_count",
-                    Operator:    ">=",
-                    TargetValue: 7,
-                },
-                Reward: domain.Reward{Type: "WALLET", RewardID: "GOLD", Quantity: 100},
-            },
-            wantErr: false,
-        },
-        {
-            name: "daily flag invalid with absolute type",
-            goal: &domain.Goal{
-                ID:          "invalid-daily",
-                Name:        "Invalid Daily Goal",
-                Type:        domain.GoalTypeAbsolute,
-                Daily:       true, // Invalid combination
-                Requirement: domain.Requirement{
-                    StatCode:    "kills",
-                    Operator:    ">=",
-                    TargetValue: 100,
-                },
-                Reward: domain.Reward{Type: "WALLET", RewardID: "GOLD", Quantity: 100},
-            },
-            wantErr: true,
-            errMsg:  "daily flag can only be true for increment type goals",
-        },
-    }
-
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            validator := NewValidator()
-            err := validator.ValidateGoal(tt.goal)
-
-            if tt.wantErr {
-                assert.Error(t, err)
-                assert.Contains(t, err.Error(), tt.errMsg)
-            } else {
-                assert.NoError(t, err)
-            }
-        })
-    }
-}
-```
-
-**Test 6: All Test Fixtures Updated**
-
-```go
-func TestFixtures_AllHaveTypeField(t *testing.T) {
-    // Ensure all test fixtures include explicit type field
-    // This test would fail during Phase 5.2.2a if any fixture is missing the type field
+func TestFixtures_AllHaveProgressModeField(t *testing.T) {
+    // Ensure all test fixtures include explicit progressMode field
+    // This test would fail if any fixture is missing the progressMode field
 
     fixtures := []struct {
         name string
@@ -567,46 +501,43 @@ func TestFixtures_AllHaveTypeField(t *testing.T) {
         {"TestGoal1", TestGoal1()},
         {"TestGoal2", TestGoal2()},
         {"TestGoalAbsolute", TestGoalAbsolute()},
-        {"TestGoalIncrement", TestGoalIncrement()},
-        {"TestGoalDaily", TestGoalDaily()},
+        {"TestGoalRelative", TestGoalRelative()},
     }
 
     for _, fixture := range fixtures {
         t.Run(fixture.name, func(t *testing.T) {
-            assert.NotEmpty(t, fixture.goal.Type,
-                "Fixture %s must have explicit type field for clarity", fixture.name)
+            assert.NotEmpty(t, fixture.goal.Requirement.ProgressMode,
+                "Fixture %s must have explicit progressMode for clarity", fixture.name)
 
-            // Verify type is valid
-            validTypes := []domain.GoalType{
-                domain.GoalTypeAbsolute,
-                domain.GoalTypeIncrement,
-                domain.GoalTypeDaily,
+            // Verify progressMode is valid
+            validModes := []domain.ProgressMode{
+                domain.ProgressModeAbsolute,
+                domain.ProgressModeRelative,
             }
-            assert.Contains(t, validTypes, fixture.goal.Type,
-                "Fixture %s has invalid type: %s", fixture.name, fixture.goal.Type)
+            assert.Contains(t, validModes, fixture.goal.Requirement.ProgressMode,
+                "Fixture %s has invalid progressMode: %s", fixture.name, fixture.goal.Requirement.ProgressMode)
         })
     }
 }
 ```
 
-#### Coverage Expectations for Phase 5.2.2a
+#### Coverage Expectations for ProgressMode Validation
 
 **Test Count:**
-- Valid type tests: 3 (absolute, increment, daily)
-- Invalid type tests: 4 (unknown, weekly, streak, typo)
+- Valid mode tests: 2 (absolute, relative)
+- Invalid mode tests: 4 (unknown, increment, daily, typo)
 - Default behavior test: 1
 - Backward compatibility test: 1
-- Daily flag validation: 2 (valid + invalid)
-- Fixture validation: 5+ fixtures
+- Fixture validation: 4+ fixtures
 
-**Total: ~16 new test cases**
+**Total: ~12 new test cases**
 
-**Time Estimate:** 30-60 minutes (comprehensive test suite as per Q6)
+**Time Estimate:** 30-60 minutes (comprehensive test suite)
 
 **Coverage Impact:**
 - Config validator: 90%+ coverage (high priority)
 - Domain models: 100% coverage (trivial, but complete)
-- Test fixtures: All updated with explicit `type` field
+- Test fixtures: All updated with explicit `progressMode` field on Requirement
 
 ### Test Coverage
 
@@ -3334,6 +3265,280 @@ func TestEventThroughput_1000EventsPerSecond(t *testing.T) {
 
     t.Logf("Processed %d events in %s (rate: %.2f events/sec)", eventCount, elapsed, float64(eventCount)/elapsed.Seconds())
 }
+```
+
+---
+
+## M5 Rotation Test Scenarios
+
+### Overview
+
+M5 introduces time-based rotation with `ProgressMode` (absolute/relative), `baseline_value`, and SQL CASE rotation logic. The following test scenarios verify correctness of the rotation system.
+
+### Unit Test Scenarios
+
+#### 1. Daily Rotation Boundary Detection
+
+Verifies that the system correctly detects when a goal's assignment has expired and a new rotation period should begin.
+
+```go
+func TestRotationDetection_ExpiredGoal(t *testing.T) {
+    // Setup: goal with expires_at in the past
+    now := time.Now().UTC()
+    expired := now.Add(-1 * time.Hour)
+    progress := &domain.UserGoalProgress{
+        UserID:    "user-1",
+        GoalID:    "daily-kill-5",
+        ExpiresAt: &expired,
+        Status:    "in_progress",
+        Progress:  3,
+    }
+
+    // Act: check if rotation is needed
+    needsRotation := rotation.IsExpired(progress, now)
+
+    // Assert
+    assert.True(t, needsRotation, "Goal with expires_at in the past should be detected as expired")
+}
+
+func TestRotationDetection_ActiveGoal(t *testing.T) {
+    // Setup: goal with expires_at in the future
+    now := time.Now().UTC()
+    future := now.Add(12 * time.Hour)
+    progress := &domain.UserGoalProgress{
+        UserID:    "user-1",
+        GoalID:    "daily-kill-5",
+        ExpiresAt: &future,
+        Status:    "in_progress",
+        Progress:  3,
+    }
+
+    // Act
+    needsRotation := rotation.IsExpired(progress, now)
+
+    // Assert
+    assert.False(t, needsRotation, "Goal with future expires_at should not be expired")
+}
+
+func TestRotationDetection_PermanentGoal(t *testing.T) {
+    // Setup: goal with nil expires_at (permanent)
+    progress := &domain.UserGoalProgress{
+        UserID:    "user-1",
+        GoalID:    "lifetime-kill-1000",
+        ExpiresAt: nil,
+        Status:    "in_progress",
+        Progress:  500,
+    }
+
+    // Act
+    needsRotation := rotation.IsExpired(progress, time.Now().UTC())
+
+    // Assert
+    assert.False(t, needsRotation, "Permanent goal (nil expires_at) should never be expired")
+}
+```
+
+#### 2. Baseline Reset on Rotation
+
+Verifies that when a rotation occurs, the baseline is recalculated from the current stat value for relative-mode goals.
+
+```go
+func TestBaselineReset_RelativeGoalRotation(t *testing.T) {
+    // Setup: relative goal that was at progress=3 (stat=103, baseline=100)
+    // After rotation, new baseline should be set from the incoming stat value
+    event := &domain.BufferedEvent{
+        UserID:       "user-1",
+        GoalID:       "daily-kill-5",
+        ChallengeID:  "daily-missions",
+        Namespace:    "test",
+        Progress:     intPtr(105), // Current stat value
+        IncValue:     2,           // Delta since last event
+        ProgressMode: domain.ProgressModeRelative,
+    }
+
+    // Act: SQL CASE in BatchUpsertProgressWithCOPY should:
+    //   - Detect rotation (expires_at < NOW())
+    //   - Set new baseline = 105 - 2 = 103
+    //   - Set progress = 105 - 103 = 2
+    //   - Reset status to 'in_progress'
+
+    // Verified via integration test against real database
+}
+```
+
+#### 3. AllowReselection: Claimed to Not_Started Transition
+
+Verifies that when `allowReselection` is enabled for a rotation group, claimed goals can be reset to `not_started` so they are eligible for selection in the next rotation.
+
+```go
+func TestAllowReselection_ClaimedToNotStarted(t *testing.T) {
+    // Setup: claimed goal in a rotation group with allowReselection=true
+    progress := &domain.UserGoalProgress{
+        UserID:    "user-1",
+        GoalID:    "daily-kill-5",
+        Status:    "claimed",
+        Progress:  5,
+        IsActive:  false, // Deactivated after claim
+    }
+
+    // Act: rotation service re-selects goals for new period
+    // The claimed goal should be eligible for reselection
+
+    // Assert: after reselection, goal should be:
+    //   - status = "not_started"
+    //   - progress = 0
+    //   - is_active = true
+    //   - baseline_value = NULL (will be set on first event)
+    //   - expires_at = new rotation end time
+}
+```
+
+#### 4. Mixed Absolute + Relative Goals in Same Flush
+
+Verifies that `BatchUpsertProgressWithCOPY` correctly handles a mix of absolute and relative ProgressMode goals in a single batch.
+
+```go
+func TestMixedProgressModes_SingleFlush(t *testing.T) {
+    events := []*domain.BufferedEvent{
+        {
+            UserID:       "user-1",
+            GoalID:       "lifetime-kill-1000",  // absolute
+            ChallengeID:  "seasonal-challenge",
+            Namespace:    "test",
+            Progress:     intPtr(150),
+            IncValue:     5,
+            ProgressMode: domain.ProgressModeAbsolute,
+        },
+        {
+            UserID:       "user-1",
+            GoalID:       "daily-kill-5",         // relative
+            ChallengeID:  "daily-missions",
+            Namespace:    "test",
+            Progress:     intPtr(105),
+            IncValue:     2,
+            ProgressMode: domain.ProgressModeRelative,
+        },
+    }
+
+    // Act: flush both events in single BatchUpsertProgressWithCOPY call
+    err := repo.BatchUpsertProgressWithCOPY(ctx, events)
+    assert.NoError(t, err)
+
+    // Assert: absolute goal has progress=150 (direct stat value)
+    // Assert: relative goal has progress=105-baseline (computed from baseline)
+}
+```
+
+#### 5. SQL CASE Rotation Logic Verification (Integration)
+
+Integration test that verifies the SQL CASE branches execute correctly against a real PostgreSQL database.
+
+```go
+func TestSQLCASE_RotationLogic_Integration(t *testing.T) {
+    // Requires: PostgreSQL test database (docker-compose.test.yml)
+
+    // Setup: insert a relative goal with known baseline and expired assignment
+    expired := time.Now().UTC().Add(-1 * time.Hour)
+    _, err := testDB.Exec(`
+        INSERT INTO user_goal_progress
+        (user_id, goal_id, challenge_id, namespace, progress, status,
+         baseline_value, is_active, expires_at, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+    `, "user-1", "daily-kill-5", "daily-missions", "test",
+       3, "in_progress", 100, true, expired)
+    require.NoError(t, err)
+
+    // Act: flush a new event for the expired goal
+    events := []*domain.BufferedEvent{
+        {
+            UserID:       "user-1",
+            GoalID:       "daily-kill-5",
+            ChallengeID:  "daily-missions",
+            Namespace:    "test",
+            Progress:     intPtr(108),
+            IncValue:     1,
+            ProgressMode: domain.ProgressModeRelative,
+        },
+    }
+    err = repo.BatchUpsertProgressWithCOPY(ctx, events)
+    require.NoError(t, err)
+
+    // Assert: rotation should have occurred
+    var progress int
+    var baselineValue int
+    var status string
+    err = testDB.QueryRow(`
+        SELECT progress, baseline_value, status
+        FROM user_goal_progress
+        WHERE user_id = $1 AND goal_id = $2
+    `, "user-1", "daily-kill-5").Scan(&progress, &baselineValue, &status)
+    require.NoError(t, err)
+
+    // After rotation:
+    //   - new baseline = 108 - 1 = 107 (stat_value - inc_value)
+    //   - new progress = 108 - 107 = 1
+    //   - status = 'in_progress' (1 < target)
+    assert.Equal(t, 107, baselineValue, "Baseline should be reset to stat_value - inc_value")
+    assert.Equal(t, 1, progress, "Progress should be stat_value - new_baseline")
+    assert.Equal(t, "in_progress", status, "Status should be in_progress after rotation")
+}
+```
+
+### E2E Rotation Test Scenarios
+
+For system-level rotation testing via the CLI-based E2E framework:
+
+```bash
+#!/bin/bash
+# tests/e2e/test-rotation-flow.sh
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/helpers.sh"
+
+echo "=== E2E Test: Rotation Flow ==="
+
+cleanup_test_data
+
+# 1. Trigger events for a daily goal (relative mode)
+echo "Step 1: Completing daily goal..."
+run_cli trigger-event stat-update --stat-code=daily_kills --value=105 --quiet
+wait_for_flush 2
+
+# 2. Verify goal completed
+CHALLENGES=$(run_cli list-challenges --format=json)
+STATUS=$(extract_json_value "$CHALLENGES" \
+    '.challenges[] | select(.id=="daily-missions") | .goals[] | select(.id=="daily-kill-5") | .status')
+assert_equals "completed" "$STATUS" "Daily goal should be completed"
+
+# 3. Claim the goal
+run_cli claim-reward daily-missions daily-kill-5 --format=json
+
+# 4. Wait for rotation (simulated by advancing expires_at in DB)
+echo "Step 2: Simulating rotation..."
+docker compose exec -T postgres psql -U postgres -d challengedb \
+    -c "UPDATE user_goal_progress SET expires_at = NOW() - INTERVAL '1 hour'
+        WHERE user_id = '$USER_ID' AND goal_id = 'daily-kill-5';" > /dev/null 2>&1
+
+# 5. Trigger new events in next rotation period
+echo "Step 3: Triggering events in new rotation period..."
+run_cli trigger-event stat-update --stat-code=daily_kills --value=110 --quiet
+wait_for_flush 2
+
+# 6. Verify progress reset for new period
+CHALLENGES=$(run_cli list-challenges --format=json)
+NEW_PROGRESS=$(extract_json_value "$CHALLENGES" \
+    '.challenges[] | select(.id=="daily-missions") | .goals[] | select(.id=="daily-kill-5") | .progress')
+NEW_STATUS=$(extract_json_value "$CHALLENGES" \
+    '.challenges[] | select(.id=="daily-missions") | .goals[] | select(.id=="daily-kill-5") | .status')
+
+# Progress should be relative to new baseline, not the old period's progress
+assert_not_equals "0" "$NEW_PROGRESS" "Progress should be non-zero in new rotation"
+echo -e "${GREEN}New rotation progress: $NEW_PROGRESS${NC}"
+
+echo ""
+echo -e "${GREEN}ALL TESTS PASSED${NC}: Rotation flow test completed successfully"
 ```
 
 ---

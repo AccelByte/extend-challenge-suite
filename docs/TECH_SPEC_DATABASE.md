@@ -47,6 +47,7 @@ CREATE TABLE user_goal_progress (
     is_active BOOLEAN NOT NULL DEFAULT true,
     assigned_at TIMESTAMP NULL,
     expires_at TIMESTAMP NULL,
+    baseline_value INT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 
@@ -72,7 +73,8 @@ CREATE TABLE user_goal_progress (
 | `claimed_at` | TIMESTAMP | NULL | Timestamp when reward was claimed |
 | `is_active` | BOOLEAN | NOT NULL | M3: Whether goal is assigned to user (controls event processing) |
 | `assigned_at` | TIMESTAMP | NULL | M3: When goal was assigned to user |
-| `expires_at` | TIMESTAMP | NULL | M5: When assignment expires (NULL = permanent, schema added in M3) |
+| `expires_at` | TIMESTAMP | NULL | M5: When assignment expires (NULL = permanent) |
+| `baseline_value` | INT | NULL | M5: Stat value at goal activation for relative progress (NULL = absolute mode or not yet initialized) |
 | `created_at` | TIMESTAMP | NOT NULL | Row creation time |
 | `updated_at` | TIMESTAMP | NOT NULL | Last update time |
 
@@ -220,81 +222,63 @@ WHERE user_id = $1 AND is_active = true;
 
 ### GoalRepository Interface Overview
 
-The repository provides four main methods for updating progress, each optimized for specific goal types and usage patterns:
+The repository provides methods for updating progress, with `BatchUpsertProgressWithCOPY` as the primary flush path (M5+). Legacy methods `UpsertProgress` and `BatchUpsertProgress` are retained for backward compatibility.
 
-#### UpsertProgress - For Absolute-Type Goals
+#### UpsertProgress - For Single Goal Updates (Legacy)
 
 ```go
-// UpsertProgress updates or inserts progress for absolute-type goals.
-// Use this for goals where the stat value represents the absolute progress
-// (e.g., "kill 100 enemies" where stat value is total kills).
+// UpsertProgress updates or inserts progress for a single goal.
+// Retained for backward compatibility and non-buffered use cases.
 // The progress value from the event replaces the current progress in the database.
 //
-// Do NOT use for increment-type or daily-type goals - use IncrementProgress instead.
+// For buffered event processing, use BatchUpsertProgressWithCOPY instead.
 //
 // Example: User has 50 kills → event reports 52 kills → progress becomes 52
 UpsertProgress(ctx context.Context, progress *UserGoalProgress) error
 ```
 
-#### BatchUpsertProgress - Batch Version for Absolute Goals
+#### BatchUpsertProgress - Batch Version (Legacy)
 
 ```go
-// BatchUpsertProgress updates or inserts progress for multiple absolute-type goals.
-// This is the batch version of UpsertProgress, used during periodic flush.
-// Executes all upserts in a single database query for performance (1,000,000x reduction).
-//
-// Use this in BufferedRepository flush for absolute-type goals.
+// BatchUpsertProgress updates or inserts progress for multiple goals.
+// Retained for backward compatibility. For event processing flush, prefer
+// BatchUpsertProgressWithCOPY which supports both absolute and relative ProgressMode.
 //
 // Performance: 1,000 updates in ~20ms (vs 1,000ms for individual UpsertProgress calls)
 BatchUpsertProgress(ctx context.Context, updates []*UserGoalProgress) error
 ```
 
-#### IncrementProgress - For Increment-Type Goals
+#### BatchUpsertProgressWithCOPY - Unified Flush Method (M5 Primary)
 
 ```go
-// IncrementProgress atomically increments progress by delta.
-// Use this for increment-type goals (both regular and daily increments).
-// The delta is ADDED to the current progress in the database (atomic DB operation).
+// BatchUpsertProgressWithCOPY is the primary flush method for BufferedRepository.
+// Introduced in M5 to unify absolute and relative progress modes into a single
+// batch operation using PostgreSQL COPY protocol for staging + SQL CASE for updates.
 //
-// For regular increments (daily=false): Accumulates all event deltas
-//   Example: progress=5 → IncrementProgress(delta=3) → progress=8
+// Handles both ProgressMode values:
+//   - ProgressModeAbsolute ("absolute"): progress = stat_value
+//   - ProgressModeRelative ("relative"): progress = stat_value - baseline_value
 //
-// For daily increments (daily=true): Only increments once per day
-//   Example: Day 1 progress=3 → IncrementProgress(delta=1) → progress=4
-//            Same day → IncrementProgress(delta=1) → progress=4 (no change)
-//            Next day → IncrementProgress(delta=1) → progress=5
+// SQL CASE patterns handle:
+//   - Baseline initialization for relative goals (first event sets baseline)
+//   - Rotation detection via expires_at (reset progress on expiry)
+//   - Status computation (CASE WHEN progress >= target THEN 'completed' ...)
+//   - Claimed protection (skip updates for claimed goals)
 //
-// Do NOT use for absolute-type goals - use UpsertProgress instead.
+// Replaces the previous split flush of BatchUpsertProgress + BatchIncrementProgress.
 //
-// Parameters:
-// - delta: Amount to increment (typically 1, or accumulated count from buffer)
-// - targetValue: Goal threshold (from config) for completion status check
-// - isDailyIncrement: If true, uses date-based logic to increment once per day
-IncrementProgress(ctx context.Context, userID, goalID, challengeID, namespace string,
-    delta, targetValue int, isDailyIncrement bool) error
-```
+// Performance: ~20ms for 1,000 events (single DB round trip)
+BatchUpsertProgressWithCOPY(ctx context.Context, events []*BufferedEvent) error
 
-#### BatchIncrementProgress - Batch Version for Increment Goals
-
-```go
-// BatchIncrementProgress atomically increments progress for multiple goals.
-// This is the batch version of IncrementProgress, used during periodic flush.
-// Executes all increments in a single database query for performance.
-//
-// Use this in BufferedRepository flush for increment-type goals.
-//
-// Performance: 1,000 increments in ~20ms (vs 1,000ms for individual calls)
-BatchIncrementProgress(ctx context.Context, increments []ProgressIncrement) error
-
-// ProgressIncrement represents a single increment operation
-type ProgressIncrement struct {
-    UserID            string
-    GoalID            string
-    ChallengeID       string
-    Namespace         string
-    Delta             int    // Amount to increment by
-    TargetValue       int    // For completion check
-    IsDailyIncrement  bool   // If true, only increment once per day
+// BufferedEvent represents a single buffered event for flush
+type BufferedEvent struct {
+    UserID       string
+    GoalID       string
+    ChallengeID  string
+    Namespace    string
+    Progress     *int          // Absolute stat value (nil for login events)
+    IncValue     int           // Increment delta; always >= 1
+    ProgressMode ProgressMode  // "absolute" or "relative"
 }
 ```
 
@@ -334,19 +318,20 @@ type ProgressIncrement struct {
 BatchUpsertGoalActive(ctx context.Context, progresses []*domain.UserGoalProgress) error
 ```
 
-**Method Selection Guide:**
+**Method Selection Guide (M5+):**
 
-| Goal Type | Single Update | Batch Update (Flush) |
-|-----------|--------------|---------------------|
-| `absolute` | `UpsertProgress` | `BatchUpsertProgress` |
-| `increment` (daily=false) | `IncrementProgress` | `BatchIncrementProgress` |
-| `increment` (daily=true) | `IncrementProgress` | `BatchIncrementProgress` |
+| ProgressMode | Single Update (Legacy) | Batch Update (Flush) |
+|--------------|----------------------|---------------------|
+| `absolute` | `UpsertProgress` | `BatchUpsertProgressWithCOPY` |
+| `relative` | `UpsertProgress` | `BatchUpsertProgressWithCOPY` |
 
 | Operation | Single Update | Batch Update |
 |-----------|--------------|--------------|
 | **Goal Activation (M3/M4)** | `UpsertGoalActive` | `BatchUpsertGoalActive` (M4) |
 
-**M4 Note:** Goal activation operations (setting `is_active=true`) now have a dedicated batch method for efficient random/batch selection endpoints. See [TECH_SPEC_M4.md](./TECH_SPEC_M4.md) for usage context.
+**M5 Note:** `BatchUpsertProgressWithCOPY` is the unified flush method that handles both `absolute` and `relative` ProgressMode in a single batch. The previous split of `BatchUpsertProgress` (for absolute) and `BatchIncrementProgress` (for increment) has been consolidated. See [TECH_SPEC_M5.md](./TECH_SPEC_M5.md) for full details.
+
+**M4 Note:** Goal activation operations (setting `is_active=true`) still use dedicated batch method for efficient random/batch selection endpoints. See [TECH_SPEC_M4.md](./TECH_SPEC_M4.md) for usage context.
 
 ---
 
@@ -517,9 +502,11 @@ WHERE user_goal_progress.status != 'claimed'
 
 **Transaction Safety:** Entire batch executes in single transaction - either all succeed or all fail
 
-### 3. Increment Progress (Atomic Counter)
+### 3. Increment Progress (Atomic Counter) -- REMOVED in M5
 
-**New in Phase 5.2**: For increment-type goals that count occurrences (e.g., login count, daily login streak).
+> **M5 Note:** The `IncrementProgress` and `BatchIncrementProgress` methods have been **removed** in M5. Their functionality is now handled by `BatchUpsertProgressWithCOPY` using `ProgressModeRelative`. The SQL below is retained for historical reference only. See Section 11 (SQL CASE Rotation Logic) for the current approach.
+
+**Originally added in Phase 5.2**: For increment-type goals that count occurrences (e.g., login count, daily login streak).
 
 #### 3a. Regular Increment (daily = false)
 
@@ -1249,82 +1236,41 @@ if err = tx.Commit(); err != nil {
 
 ### 5. Transaction Strategy for Buffered Flush
 
-**Decision (BRAINSTORM.md Q12):** Use **separate transactions** for absolute and increment buffer flushes.
+**M5 Update:** The flush strategy has been simplified. M5 replaces the previous two-buffer approach (separate absolute and increment buffers) with a **unified buffer** flushed via `BatchUpsertProgressWithCOPY`.
 
-#### Independent Transaction Approach
+#### Unified Flush (M5+)
 
-BufferedRepository flush uses two independent database transactions:
-
-1. **Transaction 1: Absolute/Daily Goals** → `BatchUpsertProgress()`
-2. **Transaction 2: Increment Goals** → `BatchIncrementProgress()`
-
-Each transaction succeeds or fails independently.
+BufferedRepository flush uses a single `map[string]*domain.BufferedEvent` buffer. All events (both `absolute` and `relative` ProgressMode) are flushed in one call to `BatchUpsertProgressWithCOPY`.
 
 **Benefits:**
-- **Simpler implementation** - No cross-buffer transaction coordination
-- **Independent failure recovery** - Absolute buffer success doesn't depend on increment buffer success
-- **Fault isolation** - Database error in one query type doesn't block the other
-- **Eventual consistency acceptable** - Both buffers retry on next flush (1 sec interval)
-
-**Trade-off Accepted:**
-- One buffer type might succeed while the other fails and retries
-- Example: Absolute goals flush successfully, increment goals fail → increment buffer retries in 1 sec
-- Acceptable for M1: Event-driven system with 1-sec automatic retry
+- **Simpler implementation** - Single buffer, single flush call
+- **Unified SQL** - SQL CASE branches handle both ProgressMode values in one query
+- **Rotation support** - SQL CASE handles baseline init, rotation detection, and status computation
+- **Eventual consistency** - On failure, buffer retries on next flush (1 sec interval)
 
 **Implementation Pattern:**
 
 ```go
 func (r *BufferedRepository) Flush() error {
-    var flushErrors []error
-
-    // TRANSACTION 1: Flush absolute goals (independent)
-    if len(r.bufferAbsolute) > 0 {
-        err := r.repo.BatchUpsertProgress(ctx, absoluteUpdates)
-        if err != nil {
-            flushErrors = append(flushErrors, fmt.Errorf("absolute flush: %w", err))
-            // Keep in buffer, retry next flush
-        } else {
-            // Clear absolute buffer only on success
-        }
+    events := r.drainBuffer() // Returns []*domain.BufferedEvent
+    if len(events) == 0 {
+        return nil
     }
 
-    // TRANSACTION 2: Flush increment goals (independent)
-    if len(r.bufferIncrement) > 0 {
-        err := r.repo.BatchIncrementProgress(ctx, incrementUpdates)
-        if err != nil {
-            flushErrors = append(flushErrors, fmt.Errorf("increment flush: %w", err))
-            // Keep in buffer, retry next flush
-        } else {
-            // Clear increment buffer only on success
-        }
-    }
-
-    // Return combined errors (partial success allowed)
-    if len(flushErrors) > 0 {
-        return fmt.Errorf("flush partial failure: %v", flushErrors)
+    err := r.repo.BatchUpsertProgressWithCOPY(ctx, events)
+    if err != nil {
+        // Re-add to buffer, retry next flush
+        r.requeue(events)
+        return fmt.Errorf("flush failed: %w", err)
     }
     return nil
 }
 ```
 
-**Partial Success Behavior:**
-- If absolute flush succeeds but increment flush fails → absolute buffer cleared, increment buffer retries
-- If increment flush succeeds but absolute flush fails → increment buffer cleared, absolute buffer retries
-- Both buffers can succeed independently
-
-**Consistency Implications:**
-- User might see absolute progress updated but increment progress delayed by 1 sec (max)
-- Both buffers will eventually flush (automatic retry every 1 sec)
-- Acceptable for event-driven progress tracking where strict ordering is not critical
-
-**Alternative Considered (Rejected for M1):**
-- Single transaction for both buffers (all-or-nothing)
-- Rejected: More complex, either buffer type failure blocks the other
-- May revisit in M2+ if strict consistency becomes a requirement
-
 **See Also:**
-- BRAINSTORM.md Q12 - Full decision rationale
+- BRAINSTORM.md Q12 - Original decision rationale (M1 two-buffer approach)
 - TECH_SPEC_EVENT_PROCESSING.md - Flush implementation details
+- [TECH_SPEC_M5.md](./TECH_SPEC_M5.md) - M5 unified buffer design
 
 ---
 
@@ -1391,6 +1337,62 @@ WHERE user_id = $1;
 **Index Used:** Primary key (prefix scan on user_id)
 **Performance:** < 20ms for 10,000 goals
 
+### 11. SQL CASE Rotation Logic (M5)
+
+**New in M5**: `BatchUpsertProgressWithCOPY` uses SQL CASE patterns in its batch UPDATE statement to handle baseline initialization, rotation detection, and status computation in a single query.
+
+#### Baseline Initialization
+
+For `relative` ProgressMode goals, the baseline is set on the first event:
+
+```sql
+-- When baseline_value is NULL and progress_mode is 'relative',
+-- initialize baseline from the current stat value minus the increment delta.
+baseline_value = CASE
+    WHEN ugp.baseline_value IS NULL AND t.progress_mode = 'relative'
+        THEN t.progress - t.inc_value
+    ELSE ugp.baseline_value
+END
+```
+
+This ensures that relative progress starts from zero at the time the goal is activated.
+
+#### Rotation Detection
+
+When a goal's assignment has expired (`expires_at < NOW()`), progress resets for the new rotation period:
+
+```sql
+-- When the assignment has expired, reset progress and update baseline
+-- for the new rotation period.
+progress = CASE
+    WHEN ugp.expires_at IS NOT NULL AND ugp.expires_at < NOW()
+        THEN ...  -- reset to new progress value
+    ELSE ...      -- normal update
+END
+```
+
+The rotation logic also resets `status` back to `not_started` or `in_progress` and clears `completed_at` so the goal can be completed again in the new period.
+
+#### Status Computation
+
+Status is computed inline using a CASE expression:
+
+```sql
+status = CASE
+    WHEN computed_progress >= target_value THEN 'completed'
+    ELSE 'in_progress'
+END
+```
+
+#### Key Design Principles
+
+- **Single round trip**: All CASE logic executes within one UPDATE query
+- **Claimed protection**: `WHERE status != 'claimed'` prevents modifying claimed goals (unless `allowReselection` triggers a `claimed` -> `not_started` transition before the flush)
+- **Active check**: `WHERE is_active = true` ensures only assigned goals are updated
+- **Expiry check**: Rotation detection uses `expires_at` to determine when to reset
+
+**See Also:** [TECH_SPEC_M5.md](./TECH_SPEC_M5.md) for the full SQL implementation of `BatchUpsertProgressWithCOPY`.
+
 ---
 
 ## Migrations
@@ -1436,6 +1438,7 @@ CREATE TABLE user_goal_progress (
     is_active BOOLEAN NOT NULL DEFAULT true,
     assigned_at TIMESTAMP NULL,
     expires_at TIMESTAMP NULL,
+    baseline_value INT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 

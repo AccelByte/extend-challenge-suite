@@ -1,17 +1,18 @@
 # Technical Specification: Event Processing
 
-**Version:** 1.0
-**Date:** 2025-10-15
+**Version:** 2.0 (M5 Update)
+**Date:** 2026-02-27
 **Parent:** [TECH_SPEC_M1.md](./TECH_SPEC_M1.md)
 
 ## Table of Contents
 1. [Overview](#overview)
 2. [Event Flow](#event-flow)
 3. [Event Schemas](#event-schemas)
-4. [Buffering Strategy](#buffering-strategy)
-5. [Concurrency Control](#concurrency-control)
-6. [Performance Optimization](#performance-optimization)
-7. [Implementation Details](#implementation-details)
+4. [Progress Mode Handling](#progress-mode-handling)
+5. [Buffering Strategy](#buffering-strategy)
+6. [Concurrency Control](#concurrency-control)
+7. [Performance Optimization](#performance-optimization)
+8. [Implementation Details](#implementation-details)
 
 ---
 
@@ -271,15 +272,17 @@ Event Processing Error
 - Use the proto definitions for type-safe implementation
 
 **Mapping to Challenges:**
-- Extract `statCode` and `value` from payload
+- Extract `statCode`, `value`, and `inc` from payload
 - Lookup matching goals via cache using `statCode`
-- Update progress for all matching goals with the `value`
+- Create `StatUpdate{Value: &value, Inc: inc}` for the event processor
+- `value` is absolute (cumulative), `inc` is the incremental delta
 
 **Critical Design Decision:**
-- AGS Statistic Service events provide **absolute values** (not deltas)
-- Example: `"value": 7.0` means user has 7 total kills, not +7 more
-- No calculation needed in event handler (just compare `value` against `target_value`)
-- This is confirmed in the Statistic Service event schema
+- AGS Statistic Service events provide both **absolute values** and **incremental deltas**
+- Example: `"value": 7.0` means user has 7 total kills; `"inc": 3.0` means +3 from this event
+- For absolute mode goals: progress = `value` (direct comparison against `target_value`)
+- For relative mode goals: `inc` is used for baseline initialization (`baseline = value - inc`)
+- Both fields are extracted and passed to the event processor as `StatUpdate`
 
 ### 3. Event Field Descriptions
 
@@ -304,21 +307,22 @@ Event Processing Error
 
 ---
 
-## Goal Type Routing
+## Progress Mode Handling
 
 ### Overview
 
-The EventProcessor routes events to different repository methods based on the goal's `type` field. This allows the system to handle different progress tracking patterns efficiently:
+**Updated in M5:** The event processing pipeline uses a unified 2-way routing model based on `ProgressMode` (not the legacy 3-way `GoalType` routing). Every event -- whether from AGS Statistic Service or IAM Login -- flows through a single `processGoal()` method that creates a `BufferedEvent` for the unified buffer.
 
-- **Absolute goals**: Track absolute stat values (e.g., kills=100)
-- **Increment goals**: Count event occurrences with atomic DB increments (e.g., login count)
-- **Daily goals**: Check if event occurred today using timestamp comparison
+The two progress modes are:
 
-### Goal Types
+- **Absolute** (`progress_mode: "absolute"`): Progress equals the latest stat value directly (e.g., kills=100)
+- **Relative** (`progress_mode: "relative"`): Progress is computed as `stat_value - baseline_value`, allowing the system to track incremental progress from when the user first engaged with the goal
 
-#### 1. Absolute Type (`"absolute"`)
+### Progress Modes
 
-**Use Case:** Track absolute stat values from AGS Statistic Service
+#### 1. Absolute Mode (`"absolute"`)
+
+**Use Case:** Track absolute stat values from AGS Statistic Service, or count login occurrences.
 
 **Example Goals:**
 - Kill 100 snowmen: `stat_code: "snowman_kills"`, `target_value: 100`
@@ -327,16 +331,16 @@ The EventProcessor routes events to different repository methods based on the go
 
 **Event Processing:**
 ```go
-// Statistic event provides absolute value
-statUpdate := event.Payload.Value  // e.g., 7 (user has 7 total kills)
-
-// Update progress with absolute value
-repo.UpdateProgress(&UserGoalProgress{
-    UserID:   userID,
-    GoalID:   goalID,
-    Progress: int(statUpdate),  // Store absolute value: 7
-    Status:   calculateStatus(statUpdate, targetValue),
-})
+// For stat events: Progress = absolute stat value, IncValue = incremental change
+bufferedEvent := &domain.BufferedEvent{
+    UserID:       userID,
+    GoalID:       goal.ID,
+    ChallengeID:  goal.ChallengeID,
+    Namespace:    namespace,
+    Progress:     &statValue,        // Absolute stat value (e.g., 7)
+    IncValue:     incValue,          // Incremental delta from event
+    ProgressMode: domain.ProgressModeAbsolute,
+}
 ```
 
 **Database Operation:** UPSERT with absolute value replacement
@@ -349,382 +353,199 @@ progress = $progress_value
 - Events contain absolute values (not deltas)
 - No accumulation needed - just replace with latest value
 - Status calculated by comparing `progress >= target_value`
+- For login events, `Progress` is nil and `IncValue` is 1; the SQL layer handles incrementing
 
-#### 2. Increment Type (`"increment"`)
+#### 2. Relative Mode (`"relative"`)
 
-**Use Case:** Count event occurrences (binary events with no stat value)
+**Use Case:** Track progress relative to a baseline established on first event. Useful for rotation scenarios where a user's stat is already at some value when a new rotation period begins.
 
 **Example Goals:**
-- Login 5 times: `stat_code: "login_count"`, `target_value: 5`
-- Complete 10 matches: `stat_code: "match_complete"`, `target_value: 10`
-- Visit shop 3 times: `stat_code: "shop_visit"`, `target_value: 3`
+- Kill 50 snowmen this week (rotation): `stat_code: "snowman_kills"`, `target_value: 50`, `progress_mode: "relative"`
+- Earn 1,000 coins this season: `stat_code: "total_coins"`, `target_value: 1000`, `progress_mode: "relative"`
 
 **Event Processing:**
 ```go
-// Each login event increments by 1
-delta := 1
-
-// Accumulate deltas in buffer
-bufferedRepo.IncrementProgress(userID, goalID, delta)
-```
-
-**BufferedRepository Behavior:**
-```go
-// Multiple events before flush:
-// Event 1: IncrementProgress(userA, goal1, 1)  → buffer[userA:goal1] = {delta: 1}
-// Event 2: IncrementProgress(userA, goal1, 1)  → buffer[userA:goal1] = {delta: 2}
-// Event 3: IncrementProgress(userA, goal1, 1)  → buffer[userA:goal1] = {delta: 3}
-
-// At flush: Single query with delta=3
-repo.IncrementProgress(userID, goalID, 3, targetValue)
-```
-
-**Database Operation:** Atomic increment
-```sql
--- progress = progress + 3 (atomic, race-free)
-progress = user_goal_progress.progress + $delta
-```
-
-**Key Characteristics:**
-- Each event occurrence adds +1 to counter
-- BufferedRepository accumulates deltas before flush
-- Database increments atomically (no race conditions)
-- Three login events → one query with delta=3
-
-#### 2b. Increment with Daily Flag (`type: "increment", daily: true`)
-
-**Use Case:** Count distinct days with event occurrence (accumulates toward one-time reward)
-
-**Important:** This is fundamentally different from Daily Type. Increment with Daily Flag accumulates progress across days for a one-time reward, while Daily Type resets daily for repeatable rewards.
-
-**Example Goals:**
-- Login 7 days: `stat_code: "login_count"`, `target_value: 7`, `daily: true`
-- Play 14 distinct days: `stat_code: "daily_activity"`, `target_value: 14`, `daily: true`
-- Monthly challenge (30 days): `stat_code: "monthly_login"`, `target_value: 30`, `daily: true`
-
-**Event Processing:**
-```go
-// Each login event increments by 1, but only once per day
-delta := 1
-
-// BufferedRepository checks date before buffering
-isDailyIncrement := true
-bufferedRepo.IncrementProgress(userID, goalID, delta, isDailyIncrement)
-```
-
-**BufferedRepository Behavior:**
-```go
-// Client-side date checking prevents same-day duplicates:
-// Day 1, Login 1: IncrementProgress(userA, goal1, 1, true) → buffer[userA:goal1] = {delta: 1}
-// Day 1, Login 2: IncrementProgress(userA, goal1, 1, true) → SKIPPED (same day)
-// Day 1, Login 3: IncrementProgress(userA, goal1, 1, true) → SKIPPED (same day)
-
-// Day 2, Login 1: IncrementProgress(userA, goal1, 1, true) → buffer[userA:goal1] = {delta: 1}
-
-// At flush (Day 2): Single query with delta=1 (not 3)
-repo.IncrementProgress(userID, goalID, 1, targetValue, isDailyIncrement=true)
-```
-
-**Database Operation:** Atomic increment with SQL date check
-```sql
--- progress = progress + 1 (atomic, race-free)
--- Only increments if DATE(completed_at) != CURRENT_DATE
-UPDATE user_goal_progress
-SET
-    progress = CASE
-        WHEN DATE(completed_at) = CURRENT_DATE THEN progress  -- Same day: no increment
-        ELSE progress + $delta  -- New day: increment
-    END,
-    completed_at = CASE
-        WHEN DATE(completed_at) = CURRENT_DATE THEN completed_at  -- Keep timestamp
-        ELSE NOW()  -- Update timestamp
-    END
-WHERE user_id = $user_id AND goal_id = $goal_id
-```
-
-**Key Characteristics:**
-- **Accumulative progress**: 0 → 1 → 2 → 3... (never resets)
-- **One-time reward**: User claims once after reaching target (e.g., 7 days)
-- **Daily deduplication**: Only increments once per day (client + server side)
-- **Same-day events**: Ignored after first event of the day
-- **Database field**: Uses `progress` counter + `updated_at` timestamp
-- **Typical use case**: "Login 7 days" challenge, "Play 30 days" monthly quest
-
-**Example Flow:**
-```
-Day 1: User logs in → progress=1, completed_at="2025-10-17", status="in_progress"
-Day 1: User logs in again → NO INCREMENT (same day, deduplication)
-Day 2: User logs in → progress=2, completed_at="2025-10-18", status="in_progress"
-Day 3: User doesn't log in → progress=2 (no change)
-Day 4: User logs in → progress=3, completed_at="2025-10-20", status="in_progress"
-...
-Day 10: User logs in → progress=7, completed_at="2025-10-26", status="completed" (reached target)
-Day 10: User claims reward → claimed_at="2025-10-26" (one-time reward)
-Day 11: User logs in → NO INCREMENT (already completed and claimed)
-```
-
-**Daily vs Daily Increment Comparison:**
-
-| Aspect | Daily Type | Increment with Daily Flag |
-|--------|-----------|---------------------------|
-| **Progress Range** | 0 or 1 | 0 to target_value |
-| **Target Value** | Always 1 | Any number (7, 14, 30+) |
-| **Resets** | Daily (via claim check) | Never (accumulates) |
-| **Claim Frequency** | Once per day | Once after reaching target |
-| **Same-Day Events** | Overwrites timestamp | Ignored (no double count) |
-| **Reward Type** | Repeatable daily reward | One-time reward |
-| **Database Method** | `UpdateProgress()` | `IncrementProgress(isDailyIncrement=true)` |
-
-#### 3. Daily Type (`"daily"`)
-
-**Use Case:** Binary daily check for repeatable rewards (resets every day)
-
-**Important:** This is fundamentally different from Increment with Daily Flag (see below). Daily type is for repeatable daily rewards, while Increment with Daily Flag is for accumulating distinct days toward a one-time reward.
-
-**Example Goals:**
-- Daily login bonus: `stat_code: "login_daily"`, `target_value: 1`
-- Daily spin wheel: `stat_code: "daily_spin"`, `target_value: 1`
-- Play one match today: `stat_code: "daily_match"`, `target_value: 1`
-
-**Event Processing:**
-```go
-// For daily goals, set completed_at to NOW if event occurs
-repo.UpdateProgress(&UserGoalProgress{
-    UserID:      userID,
-    GoalID:      goalID,
-    Progress:    1,  // Always 1 for daily goals
-    Status:      "completed",
-    CompletedAt: time.Now(),  // Key: timestamp for daily check
-})
-```
-
-**Claim Validation:**
-```go
-// In claim flow, check if completed today
-progress := repo.GetProgress(userID, goalID)
-
-today := time.Now().Truncate(24 * time.Hour)
-completedDate := progress.CompletedAt.Truncate(24 * time.Hour)
-
-if completedDate.Equal(today) {
-    // Completed today - allow claim
-    grantReward()
-} else {
-    return errors.New("goal not completed today")
+// Same BufferedEvent creation, just with ProgressModeRelative
+bufferedEvent := &domain.BufferedEvent{
+    UserID:       userID,
+    GoalID:       goal.ID,
+    ChallengeID:  goal.ChallengeID,
+    Namespace:    namespace,
+    Progress:     &statValue,
+    IncValue:     incValue,
+    ProgressMode: domain.ProgressModeRelative,
 }
 ```
 
-**Database Operation:** UPSERT with timestamp
+**Database Operation:** SQL CASE handles baseline initialization
 ```sql
--- Sets progress = 1, completed_at = NOW()
-progress = 1,
-completed_at = NOW(),
-status = 'completed'
+-- On first event: baseline = progress - inc_value
+-- On subsequent events: progress = stat_value - baseline_value
+-- See "SQL CASE Rotation Logic" section for full details
 ```
 
 **Key Characteristics:**
-- **Binary progress**: Always 0 or 1 (never accumulates)
-- **Resets daily**: Claim checks if completed_at is today (not status field)
-- **Repeatable reward**: User can claim once per day, every day
-- **Same-day events**: Multiple logins per day → last timestamp wins (deduplication)
-- **Database field**: Uses `completed_at` timestamp (not progress counter)
-- **Typical use case**: Daily login bonus, daily spin, daily quest
+- **Baseline initialization**: First event sets `baseline_value = stat_value - inc_value`
+- **Progress computation**: `effective_progress = stat_value - baseline_value`
+- **Rotation support**: When `expires_at < NOW()`, baseline resets for the new period
+- **No client-side accumulation**: All computation happens in SQL
 
 **Example Flow:**
 ```
-Day 1: User logs in → progress=1, completed_at="2025-10-17", status="completed"
-Day 1: User claims reward → claimed_at="2025-10-17" (claimed today)
-Day 1: User logs in again → completed_at updated, can claim again today
-Day 2: User logs in → completed_at="2025-10-18", status="completed" (reset)
-Day 2: User can claim again (new day, repeatable reward)
+User has 500 total kills when rotation starts
+Event 1: stat_value=503, inc=3 → baseline=500, progress=3 (503-500)
+Event 2: stat_value=510, inc=7 → baseline=500, progress=10 (510-500)
+Event 3: stat_value=550, inc=40 → baseline=500, progress=50 (550-500) → completed!
 ```
 
-### EventProcessor Routing Logic
+### Unified processGoal() Routing
 
-The `ProcessEvent` method uses a single entry point with switch-based routing to different repository methods based on goal type. This design follows Decision Q13 from Phase 5.2.2d (see BRAINSTORM.md).
-
-**Architectural Decision:** Single `ProcessEvent()` method with switch statement routing (not separate methods per event type). Benefits: unified error handling, simpler concurrency control, easier testing.
+**Updated in M5:** The EventProcessor uses a single `processGoal()` method for ALL events. There is no longer a switch statement routing to different helper methods. Every goal, regardless of `ProgressMode`, creates a `BufferedEvent` and adds it to the unified buffer.
 
 ```go
-func (p *EventProcessor) ProcessEvent(ctx context.Context, userID, namespace string, event *Event) error {
-    // Acquire per-user mutex (prevents race conditions)
-    lock := p.getUserLock(userID)
-    lock.Lock()
-    defer lock.Unlock()
-
-    // Extract stat updates from event (Decision Q14: handle both login and stat events)
-    statUpdates := extractStatUpdates(event)  // map[statCode]value
-
-    // For each stat update
-    for statCode, value := range statUpdates {
-        // Get goals tracking this stat (O(1) cache lookup)
-        goals := p.goalCache.GetGoalsByStatCode(statCode)
-
-        for _, goal := range goals {
-            // Skip if already claimed (Decision Q16: no updates to claimed goals)
-            if p.isAlreadyClaimed(userID, goal.ID) {
-                continue
-            }
-
-            // Skip if prerequisites not met (Decision Q16: locked goals)
-            if p.isGoalLocked(userID, goal) {
-                continue
-            }
-
-            // Route based on goal type (Decision Q13: switch statement)
-            switch goal.Type {
-            case domain.GoalTypeAbsolute:
-                // Absolute stat value (e.g., kills=100)
-                // Decision Q17: Always replace with new stat value
-                p.processAbsoluteGoal(userID, namespace, goal, int(value))
-
-            case domain.GoalTypeIncrement:
-                // Increment counter (e.g., login count, daily login days)
-                // Decision Q14: Login events use IncrementProgress
-                // Decision Q18: Daily flag affects BufferedRepository behavior
-                p.processIncrementGoal(userID, namespace, goal, 1)  // Always +1
-
-            case domain.GoalTypeDaily:
-                // Daily occurrence check (e.g., daily login bonus)
-                // Decision Q18: Daily type is different from Increment with daily flag
-                p.processDailyGoal(userID, namespace, goal)
-
-            default:
-                // Decision Q16: Graceful degradation for unknown types
-                p.logger.Warnf("Unknown goal type '%s' for goal %s, skipping", goal.Type, goal.ID)
-            }
-        }
+func (p *EventProcessor) processGoal(userID, namespace string, goal *domain.Goal, statUpdate *domain.StatUpdate) {
+    // Create BufferedEvent for unified buffer (same path for all progress modes)
+    event := &domain.BufferedEvent{
+        UserID:       userID,
+        GoalID:       goal.ID,
+        ChallengeID:  goal.ChallengeID,
+        Namespace:    namespace,
+        Progress:     statUpdate.Value,        // nil for login events, &statValue for stat events
+        IncValue:     statUpdate.Inc,          // Always >= 1
+        ProgressMode: goal.Requirement.ProgressMode,
     }
 
-    return nil
+    // Add to unified buffer (single Add() method)
+    p.bufferedRepo.Add(event)
 }
 ```
 
-**Design Decisions Referenced:**
-- **Q13 (BRAINSTORM.md):** Single ProcessEvent method with switch routing
-- **Q14 (BRAINSTORM.md):** Login events route by goal type (not hardcoded to increment)
-- **Q15 (BRAINSTORM.md):** Add validation for negative stat values with graceful degradation
-- **Q16 (BRAINSTORM.md):** Unknown goal types log warning and skip (no panic)
-- **Q17 (BRAINSTORM.md):** Absolute goals always replace with new stat value
-- **Q18 (BRAINSTORM.md):** Daily type vs Increment with daily flag are fundamentally different
+**Key Design Points:**
+- **No switch statement**: A single code path handles both `absolute` and `relative` modes
+- **No separate helper methods**: The old `processAbsoluteGoal()`, `processIncrementGoal()`, `processDailyGoal()` methods are removed
+- **ProgressMode from config**: Each goal declares its `progress_mode` in `Requirement.ProgressMode`
+- **StatUpdate struct**: Encapsulates both `Value` (absolute) and `Inc` (incremental delta)
+- **SQL handles complexity**: Status computation, baseline initialization, and rotation detection all happen in SQL CASE branches during batch flush
 
-**M3 Note:** The EventProcessor does NOT check `is_active` before buffering updates. This is delegated to the repository layer:
-- `BatchIncrementProgress`: Has `WHERE is_active = true` check (prevents updates to unassigned increment goals)
-- `BatchUpsertProgress`: **Fixed in M3** - Now has `WHERE is_active = true` check for consistency
+**M3+ Note:** The EventProcessor does NOT check `is_active` before buffering updates. This is delegated to the repository layer:
 - `BatchUpsertProgressWithCOPY`: Has `WHERE is_active = true` check (production version)
-- All batch methods now consistently filter by assignment status
+- All batch methods consistently filter by assignment status
 - Future optimization: EventProcessor could check `is_active` before buffering to reduce query parameters
 
-### Repository Method Routing
+### StatUpdate Extraction
 
-The EventProcessor delegates to three helper methods based on goal type. Each method encapsulates the specific logic for that goal type.
+The EventProcessor extracts a `StatUpdate` struct from each incoming event before passing it to `processGoal()`:
 
 ```go
-// processAbsoluteGoal handles stat-based goals with absolute values
-// Decision Q17: Always replace with new stat value (no comparison needed)
-func (p *EventProcessor) processAbsoluteGoal(userID, namespace string, goal *domain.Goal, value int) {
-    // Decision Q15: Add validation for negative values
-    if value < 0 {
-        p.logger.Warnf("Negative stat value %d for goal %s, user %s, skipping",
-            value, goal.ID, userID)
-        return  // Graceful degradation: skip invalid values
-    }
-
-    // Calculate status based on progress vs target
-    status := "in_progress"
-    var completedAt *time.Time
-    if value >= goal.Requirement.TargetValue {
-        status = "completed"
-        now := time.Now()
-        completedAt = &now
-    }
-
-    // Update progress with absolute value
-    p.bufferedRepo.UpdateProgress(&domain.UserGoalProgress{
-        UserID:      userID,
-        GoalID:      goal.ID,
-        ChallengeID: goal.ChallengeID,
-        Namespace:   namespace,
-        Progress:    value,  // Absolute value (replaces previous)
-        Status:      status,
-        CompletedAt: completedAt,
-    })
-}
-
-// processIncrementGoal handles counter-based goals (both regular and daily)
-// Decision Q14: Login events use IncrementProgress (not UpdateProgress)
-// Decision Q18: Daily flag affects BufferedRepository behavior (date checking)
-func (p *EventProcessor) processIncrementGoal(userID, namespace string, goal *domain.Goal, delta int) {
-    // BufferedRepository accumulates deltas before flush
-    // For daily increments: BufferedRepository checks date before buffering
-    // Multiple events: delta=1, delta=1, delta=1 → flush with delta=3 (regular)
-    //                  delta=1, delta=SKIP, delta=SKIP → flush with delta=1 (daily)
-    p.bufferedRepo.IncrementProgress(
-        userID,
-        goal.ID,
-        goal.ChallengeID,
-        namespace,
-        delta,  // Always 1 for login events
-        goal.Requirement.TargetValue,
-        goal.Daily,  // Decision Q18: Pass daily flag to BufferedRepository
-    )
-}
-
-// processDailyGoal handles binary daily check goals
-// Decision Q18: Daily type is different from Increment with daily flag
-func (p *EventProcessor) processDailyGoal(userID, namespace string, goal *domain.Goal) {
-    now := time.Now()
-
-    // Daily goals always set progress=1 and completed_at=NOW()
-    // Claim validation checks if completed_at is today (repeatable reward)
-    p.bufferedRepo.UpdateProgress(&domain.UserGoalProgress{
-        UserID:      userID,
-        GoalID:      goal.ID,
-        ChallengeID: goal.ChallengeID,
-        Namespace:   namespace,
-        Progress:    1,  // Always 1 for daily (binary check)
-        Status:      "completed",
-        CompletedAt: &now,  // Key: timestamp for daily check
-    })
+type StatUpdate struct {
+    Value *int  // Absolute stat value (nil for login events)
+    Inc   int   // Incremental change (always >= 1)
 }
 ```
 
-**Helper Method Responsibilities:**
+**For AGS Statistic events:**
+```go
+statUpdate := &domain.StatUpdate{
+    Value: &msg.Payload.StatValue,  // Absolute value from AGS (e.g., 503)
+    Inc:   msg.Payload.Inc,         // Incremental delta from AGS (e.g., 3)
+}
+```
 
-| Method | Goal Type | Repository Method | Validation | Key Logic |
-|--------|-----------|-------------------|------------|-----------|
-| `processAbsoluteGoal` | `absolute` | `UpdateProgress()` | Negative value check | Replace with absolute value |
-| `processIncrementGoal` | `increment` | `IncrementProgress()` | None (delta always 1) | Accumulate deltas, daily flag controls date checking |
-| `processDailyGoal` | `daily` | `UpdateProgress()` | None | Always progress=1, completed_at=NOW() |
+**For IAM Login events:**
+```go
+statUpdate := &domain.StatUpdate{
+    Value: nil,  // No absolute stat value for login events
+    Inc:   1,    // Synthetic: each login counts as 1
+}
+```
 
-### Event to Goal Type Mapping
+### Inc Field Extraction
 
-**Updated based on Decision Q13-Q18 (BRAINSTORM.md Phase 5.2.2d):**
+**Added in M5:** The `Inc` field is critical for baseline computation in relative mode goals.
 
-| Event Type | Event Field | Goal Type | Goal.Daily Flag | Repository Method | Database Operation | Use Case |
-|------------|-------------|-----------|-----------------|-------------------|-------------------|----------|
-| Statistic Update | `payload.value` (absolute) | `absolute` | N/A | `UpdateProgress(value)` | `progress = value` | Kill 100 snowmen |
-| IAM Login | No value (binary) | `increment` | `false` | `IncrementProgress(1, isDailyIncrement=false)` | `progress = progress + 1` | Login 5 times total |
-| IAM Login | No value (binary) | `increment` | `true` | `IncrementProgress(1, isDailyIncrement=true)` | `progress = progress + 1` (max once/day) | Login 7 distinct days |
-| IAM Login | No value (binary) | `daily` | N/A | `UpdateProgress(progress=1, completed_at=NOW)` | `completed_at = NOW()` | Daily login bonus |
+**AGS Statistic Events:**
+- The AGS statistic update event payload includes an `inc` field representing the incremental change
+- Example: If a user had 500 kills and got 3 more, the event contains `value=503` and `inc=3`
+- The event processor extracts `msg.Payload.Inc` directly
 
-**Key Decision Points:**
-- **Decision Q14:** Login events route by goal type (not hardcoded to increment)
-- **Decision Q17:** Absolute goals always replace with new stat value
-- **Decision Q18:** Daily type vs Increment with daily flag are fundamentally different
+**IAM Login Events:**
+- Login events are binary (no stat payload), so a synthetic `incValue = 1` is used
+- Each login occurrence counts as exactly 1 increment
+- This synthetic value is used for baseline computation: `baseline = progress - inc_value`
+
+**Why Inc Matters:**
+- For absolute mode: `Inc` is stored but not used for progress computation (progress = stat value)
+- For relative mode: `Inc` is essential for baseline initialization (`baseline = first_stat_value - inc_value`)
+- The `Inc` value ensures the baseline is correctly set to the user's stat value *before* the triggering event
+
+### Baseline Initialization
+
+**Added in M5:** Relative mode goals require a baseline to compute progress. The baseline is initialized on the first event for each user-goal pair.
+
+**How It Works:**
+1. First event arrives for a relative-mode goal (e.g., stat_value=503, inc=3)
+2. SQL detects `baseline_value IS NULL AND progress_mode = 'relative'`
+3. SQL sets `baseline_value = stat_value - inc_value` (e.g., 503 - 3 = 500)
+4. Progress is computed as `stat_value - baseline_value` (e.g., 503 - 500 = 3)
+
+**SQL CASE branch:**
+```sql
+baseline_value = CASE
+    -- First event for relative mode: initialize baseline
+    WHEN ugp.baseline_value IS NULL AND t.progress_mode = 'relative'
+        THEN t.progress - t.inc_value
+    -- Rotation boundary: reset baseline for new period
+    WHEN ugp.expires_at IS NOT NULL AND ugp.expires_at < NOW() AND t.progress_mode = 'relative'
+        THEN t.progress - t.inc_value
+    -- Otherwise: keep existing baseline
+    ELSE ugp.baseline_value
+END
+```
+
+**Key Points:**
+- Baseline is set lazily (on first event, not on initialization)
+- The formula `stat_value - inc_value` gives the user's stat value *before* the triggering event
+- For login events (Progress=nil, Inc=1), baseline defaults to 0 (progress starts from 0)
+- On rotation boundary (`expires_at < NOW()`), baseline resets to allow fresh progress tracking
+
+### SQL CASE Rotation Logic
+
+**Added in M5:** The batch UPDATE query (`BatchUpsertProgressWithCOPY`) uses SQL CASE branches to handle rotation boundaries, baseline initialization, and status computation in a single database round trip.
+
+**Overview of SQL CASE branches:**
+
+1. **Baseline initialization** (described above): Sets baseline on first event or rotation boundary
+2. **Rotation detection**: When `expires_at IS NOT NULL AND expires_at < NOW()`, the goal has crossed a rotation boundary
+   - Baseline resets: `baseline = stat_value - inc_value`
+   - Progress resets: Computed from new baseline
+   - Status resets: Re-evaluated against target
+   - `expires_at` updates to next rotation period
+3. **Status computation**: `CASE WHEN progress >= target THEN 'completed' ELSE 'in_progress' END`
+4. **Claimed protection**: Skip updates for rows with `status = 'claimed'` (unless `allowReselection` is enabled for the goal)
+
+**See [TECH_SPEC_M5.md](./TECH_SPEC_M5.md) for the full SQL query and detailed rotation logic.**
+
+### Event to Progress Mode Mapping
+
+| Event Type | Value Field | Inc Field | Progress Mode | Repository Method | Use Case |
+|------------|-------------|-----------|---------------|-------------------|----------|
+| Statistic Update | `payload.value` (absolute) | `payload.inc` (delta) | `absolute` | `Add(BufferedEvent)` | Kill 100 snowmen (lifetime) |
+| Statistic Update | `payload.value` (absolute) | `payload.inc` (delta) | `relative` | `Add(BufferedEvent)` | Kill 50 snowmen this week |
+| IAM Login | `nil` | `1` (synthetic) | `absolute` | `Add(BufferedEvent)` | Login 5 times total |
+| IAM Login | `nil` | `1` (synthetic) | `relative` | `Add(BufferedEvent)` | Login 10 times this season |
 
 ### Configuration Examples
 
-**Example 1: Stat-Based Goal (Absolute)**
+**Example 1: Stat-Based Goal (Absolute Mode)**
 ```json
 {
   "id": "kill-100-snowmen",
   "name": "Snowman Hunter",
-  "type": "absolute",
   "requirement": {
     "stat_code": "snowman_kills",
     "operator": ">=",
-    "target_value": 100
+    "target_value": 100,
+    "progressMode": "absolute"
   },
   "reward": {
     "type": "ITEM",
@@ -734,16 +555,39 @@ func (p *EventProcessor) processDailyGoal(userID, namespace string, goal *domain
 }
 ```
 
-**Example 2: Login Count Goal (Increment - Regular)**
+**Example 2: Stat-Based Goal (Relative Mode - Rotation)**
+```json
+{
+  "id": "weekly-snowman-kills",
+  "name": "Weekly Snowman Hunter",
+  "requirement": {
+    "stat_code": "snowman_kills",
+    "operator": ">=",
+    "target_value": 50,
+    "progressMode": "relative"
+  },
+  "rotation": {
+    "type": "weekly",
+    "day_of_week": "monday"
+  },
+  "reward": {
+    "type": "WALLET",
+    "currency_code": "GOLD",
+    "amount": 200
+  }
+}
+```
+
+**Example 3: Login Goal (Absolute Mode)**
 ```json
 {
   "id": "login-5-times",
   "name": "Frequent Player",
-  "type": "increment",
   "requirement": {
     "stat_code": "login_count",
     "operator": ">=",
-    "target_value": 5
+    "target_value": 5,
+    "progressMode": "absolute"
   },
   "reward": {
     "type": "WALLET",
@@ -753,17 +597,20 @@ func (p *EventProcessor) processDailyGoal(userID, namespace string, goal *domain
 }
 ```
 
-**Example 3: Login 7 Days Goal (Increment with Daily Flag)**
+**Example 4: Login Goal (Relative Mode - Seasonal Rotation)**
 ```json
 {
-  "id": "login-7-days-challenge",
-  "name": "Weekly Warrior",
-  "type": "increment",
-  "daily": true,
+  "id": "seasonal-login-challenge",
+  "name": "Seasonal Dedication",
   "requirement": {
     "stat_code": "login_count",
     "operator": ">=",
-    "target_value": 7
+    "target_value": 30,
+    "progressMode": "relative"
+  },
+  "rotation": {
+    "type": "custom",
+    "duration_days": 90
   },
   "reward": {
     "type": "WALLET",
@@ -773,64 +620,51 @@ func (p *EventProcessor) processDailyGoal(userID, namespace string, goal *domain
 }
 ```
 
-**Example 4: Daily Login Bonus (Daily Type)**
-```json
-{
-  "id": "daily-login-bonus",
-  "name": "Daily Check-In",
-  "type": "daily",
-  "requirement": {
-    "stat_code": "login_daily",
-    "operator": ">=",
-    "target_value": 1
-  },
-  "reward": {
-    "type": "WALLET",
-    "currency_code": "GOLD",
-    "amount": 50
-  }
-}
-```
-
 **Key Differences in Configuration:**
 
-| Goal Type | Config Example | Daily Flag | Target Value | Reward Frequency |
-|-----------|----------------|------------|--------------|------------------|
-| Absolute | `"type": "absolute"` | N/A | Any (e.g., 100) | One-time |
-| Increment (Regular) | `"type": "increment"` | Not present or `false` | Any (e.g., 5) | One-time |
-| Increment (Daily) | `"type": "increment", "daily": true` | `true` | Any (e.g., 7, 30) | One-time |
-| Daily | `"type": "daily"` | N/A | Always 1 | Repeatable (daily) |
+| Progress Mode | Config Example | Baseline | Rotation Support | Use Case |
+|---------------|----------------|----------|------------------|----------|
+| Absolute | `"progressMode": "absolute"` | N/A (progress = stat value) | No (lifetime tracking) | Kill 100 snowmen total |
+| Relative | `"progressMode": "relative"` | Set on first event | Yes (baseline resets) | Kill 50 snowmen this week |
 
 ### Design Benefits
 
-1. **Type Safety**: Explicit goal types prevent misuse (e.g., treating login as stat value)
-2. **Performance**: Atomic increments avoid read-modify-write races
-3. **Correctness**: Daily goals use timestamps, not counters
-4. **Buffering Compatibility**: All three types work with buffering (1,000,000x reduction preserved)
-5. **Extensibility**: Easy to add new goal types (e.g., `weekly`, `streak`)
+1. **Simplicity**: 2-way routing (not 3-way) reduces code complexity
+2. **Unified buffer**: Single `BufferedEvent` struct and single `Add()` method for all events
+3. **SQL-driven logic**: Status, baseline, and rotation handled in SQL (not Go code)
+4. **Rotation support**: Relative mode enables time-based rotation with baseline reset
+5. **Extensibility**: New progress modes can be added by extending the SQL CASE branches
 
 ### Migration Path
 
-**For Existing Deployments:**
+**From M1-M4 (GoalType) to M5 (ProgressMode):**
 
-If `type` field is missing from goal config, default to `"absolute"` for backward compatibility:
+The old `type` field (`absolute`, `increment`, `daily`) is replaced by `progress_mode` in the requirement:
+
+| Old Config (M1-M4) | New Config (M5) |
+|---------------------|-----------------|
+| `"type": "absolute"` | `"progressMode": "absolute"` |
+| `"type": "increment"` | `"progressMode": "relative"` (or `"absolute"` for lifetime counters) |
+| `"type": "daily"` | Use rotation config with `"progressMode": "relative"` |
+| `"type": "increment", "daily": true` | Use rotation config with `"progressMode": "relative"` |
+
+**Backward compatibility:** If `progress_mode` is missing from goal config, it defaults to `"absolute"`.
 
 ```go
 func (v *Validator) validateGoal(goal *domain.Goal) error {
-    // Default to absolute if type not specified
-    if goal.Type == "" {
-        goal.Type = domain.GoalTypeAbsolute
+    // Default to absolute if progress_mode not specified
+    if goal.Requirement.ProgressMode == "" {
+        goal.Requirement.ProgressMode = domain.ProgressModeAbsolute
     }
 
-    // Validate type
-    validTypes := []domain.GoalType{
-        domain.GoalTypeAbsolute,
-        domain.GoalTypeIncrement,
-        domain.GoalTypeDaily,
+    // Validate progress_mode
+    validModes := []domain.ProgressMode{
+        domain.ProgressModeAbsolute,
+        domain.ProgressModeRelative,
     }
 
-    if !contains(validTypes, goal.Type) {
-        return fmt.Errorf("invalid goal type: %s", goal.Type)
+    if !contains(validModes, goal.Requirement.ProgressMode) {
+        return fmt.Errorf("invalid progress_mode: %s", goal.Requirement.ProgressMode)
     }
 
     return nil
@@ -838,9 +672,10 @@ func (v *Validator) validateGoal(goal *domain.Goal) error {
 ```
 
 **See Also:**
-- [TECH_SPEC_CONFIGURATION.md](./TECH_SPEC_CONFIGURATION.md) - Goal type schema and validation
-- [TECH_SPEC_DATABASE.md](./TECH_SPEC_DATABASE.md) - Atomic increment SQL query
-- [BRAINSTORM.md](./BRAINSTORM.md) - Option 5 design decision
+- [TECH_SPEC_CONFIGURATION.md](./TECH_SPEC_CONFIGURATION.md) - Progress mode schema and validation
+- [TECH_SPEC_DATABASE.md](./TECH_SPEC_DATABASE.md) - SQL CASE rotation queries
+- [TECH_SPEC_M5.md](./TECH_SPEC_M5.md) - Full M5 rotation specification
+- [BRAINSTORM.md](./BRAINSTORM.md) - Design decision history
 
 ---
 
@@ -870,8 +705,7 @@ The LoginHandler processes IAM login events and updates progress for login-based
 {
   "id": "daily-login",
   "event_source": "login",
-  "type": "daily",
-  "requirement": {"stat_code": "login_daily", "target_value": 1}
+  "requirement": {"stat_code": "login_daily", "target_value": 1, "progressMode": "absolute"}
 }
 ```
 
@@ -882,24 +716,28 @@ The LoginHandler processes IAM login events and updates progress for login-based
 
 #### Q2: Login Event Stat Value ✅
 
-**Decision:** Always use `statValue = 1` for login events
+**Decision:** Always use `Inc = 1` and `Value = nil` for login events
 
 **Rationale:**
 - Login is a binary event (happened or not)
-- Increment goals count occurrences: 1 login = 1 increment
-- Daily goals just check timestamp, stat value unused
-- Absolute goals not applicable for login events
+- Each login counts as 1 increment (`Inc = 1`)
+- No absolute stat value available for login events (`Value = nil`)
+- The `Inc` value is used for baseline computation in relative mode
 
 **Implementation:**
 ```go
 func (h *LoginHandler) OnMessage(ctx context.Context, msg *pb.UserLoggedIn) (*emptypb.Empty, error) {
-    statValue := 1  // Always 1 for login events
+    // Create StatUpdate with synthetic values for login events
+    statUpdate := &domain.StatUpdate{
+        Value: nil,  // No absolute stat value for login
+        Inc:   1,    // Synthetic: each login counts as 1
+    }
 
     // Find all login-triggered goals
     goals := h.goalCache.GetAllGoals()
     for _, goal := range goals {
         if goal.EventSource == domain.EventSourceLogin {
-            h.processor.ProcessEvent(userID, goal.ID, statValue)
+            h.processor.ProcessGoal(userID, namespace, goal, statUpdate)
         }
     }
 
@@ -1136,10 +974,11 @@ func (h *LoginHandler) OnMessage(ctx context.Context, msg *pb.UserLoggedIn) (*em
             "userID", userID,
             "goalID", goal.ID,
             "challengeID", goal.ChallengeID,
-            "type", goal.Type)
+            "progressMode", goal.Requirement.ProgressMode)
 
-        // Always use statValue=1 for login events (Decision Q2)
-        err := h.processor.ProcessEvent(userID, goal.ID, 1)
+        // Create StatUpdate: Value=nil, Inc=1 for login events (Decision Q2)
+        statUpdate := &domain.StatUpdate{Value: nil, Inc: 1}
+        err := h.processor.ProcessGoal(userID, namespace, goal, statUpdate)
         if err != nil {
             // Buffer full or critical error - return error for Extend platform retry
             h.logger.Error("Failed to process login event, returning error for retry",
@@ -1245,11 +1084,14 @@ func TestLoginHandler_OnMessage_Success(t *testing.T) {
         ID: "daily-login",
         ChallengeID: "daily-quests",
         EventSource: domain.EventSourceLogin,
-        Type: domain.GoalTypeDaily,
+        Requirement: domain.Requirement{
+            ProgressMode: domain.ProgressModeAbsolute,
+        },
     }
 
     mockCache.On("GetAllGoals").Return([]*domain.Goal{loginGoal})
-    mockProcessor.On("ProcessEvent", "user123", "daily-login", 1).Return(nil)
+    statUpdate := &domain.StatUpdate{Value: nil, Inc: 1}
+    mockProcessor.On("ProcessGoal", "user123", mock.Anything, loginGoal, statUpdate).Return(nil)
 
     // Create handler
     handler := NewLoginHandler(mockProcessor, mockCache, logrus.New())
@@ -1331,10 +1173,12 @@ With time-based + size-based buffering (recommended):
 
 ### BufferedRepository Design
 
+**Updated in M5:** The BufferedRepository uses a single unified buffer of `*domain.BufferedEvent` entries. The old multi-buffer design (separate maps for absolute, increment, and daily-increment goals) has been replaced with a single `map[string]*domain.BufferedEvent`.
+
 ```go
 type BufferedRepository struct {
-    buffer        map[string]*UserGoalProgress  // key: "{user_id}:{goal_id}"
-    mu            sync.RWMutex
+    buffer        map[string]*domain.BufferedEvent  // key: "userID:goalID"
+    mu            sync.Mutex
     ticker        *time.Ticker
     repo          GoalRepository
     logger        *log.Logger
@@ -1343,7 +1187,7 @@ type BufferedRepository struct {
 
 func NewBufferedRepository(repo GoalRepository, flushInterval time.Duration, maxBufferSize int) *BufferedRepository {
     r := &BufferedRepository{
-        buffer:        make(map[string]*UserGoalProgress),
+        buffer:        make(map[string]*domain.BufferedEvent),
         ticker:        time.NewTicker(flushInterval),
         repo:          repo,
         maxBufferSize: maxBufferSize,  // Default: 1000
@@ -1355,19 +1199,34 @@ func NewBufferedRepository(repo GoalRepository, flushInterval time.Duration, max
 }
 ```
 
+**BufferedEvent struct:**
+```go
+type BufferedEvent struct {
+    UserID       string
+    GoalID       string
+    ChallengeID  string
+    Namespace    string
+    Progress     *int          // Absolute stat value (nil for login events)
+    IncValue     int           // Increment delta; always >= 1
+    ProgressMode ProgressMode  // "absolute" or "relative"
+}
+```
+
 ### Buffer Operations
 
-#### 1. UpdateProgress (Write to Buffer)
+#### 1. Add (Write to Buffer)
+
+**Updated in M5:** The single `Add()` method replaces the old `UpdateProgress()` and `IncrementProgress()` methods. All events use the same entry point.
 
 ```go
-func (r *BufferedRepository) UpdateProgress(progress *UserGoalProgress) {
+func (r *BufferedRepository) Add(event *domain.BufferedEvent) {
     r.mu.Lock()
     defer r.mu.Unlock()
 
-    key := fmt.Sprintf("%s:%s", progress.UserID, progress.GoalID)
+    key := fmt.Sprintf("%s:%s", event.UserID, event.GoalID)
 
-    // Overwrite previous buffered update (deduplication)
-    r.buffer[key] = progress
+    // Overwrite previous buffered event (deduplication: latest event wins)
+    r.buffer[key] = event
 
     // Size-based flush: trigger flush if buffer exceeds threshold
     if len(r.buffer) >= r.maxBufferSize {
@@ -1381,7 +1240,9 @@ func (r *BufferedRepository) UpdateProgress(progress *UserGoalProgress) {
 ```
 
 **Key Features:**
-- Map key ensures only one pending update per user-goal pair
+- Single `Add()` method for all event types (stat updates and login events)
+- Map key `"userID:goalID"` ensures only one pending event per user-goal pair
+- Latest event overwrites previous (map-based deduplication)
 - **Dual flush triggers**: Time-based (1s) OR size-based (1000 entries)
 - Size-based flush runs async to avoid blocking event processing
 
@@ -1400,34 +1261,34 @@ func (r *BufferedRepository) Flush() error {
     // Swap pattern: Copy buffer reference and create new empty buffer
     // This allows us to release the lock immediately (faster unlock)
     bufferToFlush := r.buffer
-    r.buffer = make(map[string]*UserGoalProgress)
+    r.buffer = make(map[string]*domain.BufferedEvent)
 
-    r.mu.Unlock()  // ← Release lock BEFORE processing (Decision Q2, Phase 5.2.2c)
+    r.mu.Unlock()  // Release lock BEFORE processing
 
     // Early return if nothing to flush
     if len(bufferToFlush) == 0 {
         return nil
     }
 
-    r.logger.Info("Flushing buffered updates", "count", len(bufferToFlush))
+    r.logger.Info("Flushing buffered events", "count", len(bufferToFlush))
 
-    // Collect all buffered updates (outside lock)
-    updates := make([]*UserGoalProgress, 0, len(bufferToFlush))
-    for _, progress := range bufferToFlush {
-        updates = append(updates, progress)
+    // Collect all buffered events (outside lock)
+    events := make([]*domain.BufferedEvent, 0, len(bufferToFlush))
+    for _, event := range bufferToFlush {
+        events = append(events, event)
     }
 
-    // Batch UPSERT all updates in single database call (outside lock)
-    err := r.repo.BatchUpsertProgress(updates)
+    // Single COPY flush: BatchUpsertProgressWithCOPY handles all event types
+    err := r.repo.BatchUpsertProgressWithCOPY(context.Background(), events)
     if err != nil {
-        r.logger.Error("Failed to flush batch", "count", len(updates), "error", err)
+        r.logger.Error("Failed to flush batch", "count", len(events), "error", err)
 
-        // Re-acquire lock to restore failed updates for retry
+        // Re-acquire lock to restore failed events for retry
         r.mu.Lock()
-        for key, progress := range bufferToFlush {
+        for key, event := range bufferToFlush {
             // Only restore if not already updated by newer event
             if _, exists := r.buffer[key]; !exists {
-                r.buffer[key] = progress
+                r.buffer[key] = event
             }
         }
         r.mu.Unlock()
@@ -1435,7 +1296,7 @@ func (r *BufferedRepository) Flush() error {
         return err
     }
 
-    r.logger.Info("Successfully flushed updates", "count", len(updates))
+    r.logger.Info("Successfully flushed events", "count", len(events))
     return nil
 }
 ```
@@ -1475,15 +1336,15 @@ func (r *BufferedRepository) ForceFlush() error {
 **Solution:** Overflow protection at 2x threshold prevents unbounded growth.
 
 ```go
-func (r *BufferedRepository) UpdateProgress(ctx context.Context, progress *domain.UserGoalProgress) error {
+func (r *BufferedRepository) Add(event *domain.BufferedEvent) error {
     // Input validation
-    if progress == nil {
-        return fmt.Errorf("progress cannot be nil")
+    if event == nil {
+        return fmt.Errorf("event cannot be nil")
     }
-    if progress.UserID == "" {
+    if event.UserID == "" {
         return fmt.Errorf("userID cannot be empty")
     }
-    if progress.GoalID == "" {
+    if event.GoalID == "" {
         return fmt.Errorf("goalID cannot be empty")
     }
 
@@ -1496,16 +1357,16 @@ func (r *BufferedRepository) UpdateProgress(ctx context.Context, progress *domai
         r.logger.WithFields(logrus.Fields{
             "buffer_size": len(r.buffer),
             "max_allowed": r.maxBufferSize * 2,
-            "user_id":     progress.UserID,
-            "goal_id":     progress.GoalID,
+            "user_id":     event.UserID,
+            "goal_id":     event.GoalID,
         }).Error("Buffer overflow: too many failed flushes")
         return fmt.Errorf("buffer overflow: size %d exceeds max %d (database may be unavailable)", len(r.buffer), r.maxBufferSize*2)
     }
 
-    key := fmt.Sprintf("%s:%s", progress.UserID, progress.GoalID)
-    r.buffer[key] = progress
+    key := fmt.Sprintf("%s:%s", event.UserID, event.GoalID)
+    r.buffer[key] = event
 
-    // ... rest of implementation
+    // ... rest of implementation (size-based flush check)
 }
 ```
 
@@ -1547,7 +1408,7 @@ type BufferedRepository struct {
     flushInProgress atomic.Bool
 }
 
-func (r *BufferedRepository) UpdateProgress(ctx context.Context, progress *domain.UserGoalProgress) error {
+func (r *BufferedRepository) Add(event *domain.BufferedEvent) error {
     // ... validation and buffering logic
 
     // Early return if buffer size is below threshold
@@ -1622,443 +1483,105 @@ BUFFER_MAX_SIZE=1000            # Max entries before forcing flush (default: 100
 - If seeing memory pressure → decrease threshold
 - If seeing long flush times (>100ms) → decrease threshold
 
-### Daily Increment Buffering
+### Unified Buffer Architecture (M5)
 
-**New in Phase 5.2**: Support for daily increment goals ("Login 7 days") requires client-side date checking to prevent same-day duplicates.
+**Updated in M5:** The old multi-buffer design (separate `buffer`, `bufferIncrement`, `bufferIncrementDaily` maps) has been replaced with a single unified buffer. All event types flow through one `Add()` method and one `Flush()` method, with all complexity delegated to SQL CASE branches in the `BatchUpsertProgressWithCOPY` query.
 
-#### Problem Statement
-
-Daily increment goals (`type: "increment", daily: true`) should only increment once per day:
-- User logs in 3 times on Day 1 → progress = 1 (not 3)
-- User logs in 1 time on Day 2 → progress = 2
-- Without client-side checking, all 3 Day 1 events would be buffered and flushed, causing incorrect DB increments
-
-#### Solution: Dual Buffer Strategy
-
-Buff eredRepository maintains TWO separate buffer maps:
+#### Single Buffer Design
 
 ```go
 type BufferedRepository struct {
-    // Existing fields
-    buffer        map[string]*UserGoalProgress  // Absolute/daily goals
-    mu            sync.RWMutex
+    buffer        map[string]*domain.BufferedEvent  // key: "userID:goalID"
+    mu            sync.Mutex
     ticker        *time.Ticker
     repo          GoalRepository
     maxBufferSize int
-
-    // NEW: Daily increment tracking
-    bufferIncrement     map[string]int        // Regular increments: "userID:goalID" -> delta
-    bufferIncrementDaily map[string]time.Time  // Daily increments: "userID:goalID" -> last_event_time
 }
 ```
 
 **Key Design:**
-- `bufferIncrement`: Accumulates deltas for regular increment goals (e.g., total login count)
-- `bufferIncrementDaily`: Tracks last event time for daily increment goals (e.g., login days)
+- Single `map[string]*domain.BufferedEvent` holds ALL pending events
+- Key format: `"userID:goalID"` ensures one pending event per user-goal pair
+- Latest event overwrites previous (map-based deduplication)
+- No separate increment or daily maps needed
 
-#### IncrementProgress Implementation
+#### Add Method
 
 ```go
-func (r *BufferedRepository) IncrementProgress(ctx context.Context, userID, goalID, challengeID, namespace string,
-    delta, targetValue int, isDailyIncrement bool) error {
-
+func (r *BufferedRepository) Add(event *domain.BufferedEvent) error {
     r.mu.Lock()
     defer r.mu.Unlock()
 
-    key := fmt.Sprintf("%s:%s", userID, goalID)
+    key := fmt.Sprintf("%s:%s", event.UserID, event.GoalID)
 
-    if isDailyIncrement {
-        // Client-side date checking for daily increments
-        lastEventTime, exists := r.bufferIncrementDaily[key]
-        now := time.Now()
-        // Use shared date utility to ensure consistency with SQL DATE() function
-        // (Decision Q3a, Phase 5.2.2c)
-        today := dateutil.GetCurrentDateUTC()  // From: extend-challenge-common/pkg/common/dateutil.go
+    // Overwrite previous buffered event (deduplication: latest event wins)
+    r.buffer[key] = event
 
-        if exists {
-            lastEventDate := dateutil.TruncateToDateUTC(lastEventTime)
-            if lastEventDate.Equal(today) {
-                // Same day - skip buffering
-                r.logger.Debug("Skipping daily increment: same day",
-                    "userID", userID,
-                    "goalID", goalID,
-                    "lastEvent", lastEventTime,
-                    "currentEvent", now)
-                return nil
-            }
-        }
-
-        // Graceful degradation: Check if bufferIncrementDaily is at capacity
-        // Hard limit: 200K entries (Decision Q1b, Phase 5.2.2c)
-        if len(r.bufferIncrementDaily) >= 200000 && !exists {
-            // Buffer full - skip storing timestamp, but still increment progress
-            // SQL DATE() check in database will prevent same-day duplicates
-            // (Decision Q1d, Phase 5.2.2c)
-            r.logger.Warn("bufferIncrementDaily at capacity, relying on SQL date check",
-                "size", len(r.bufferIncrementDaily),
-                "userID", userID,
-                "goalID", goalID)
-            // Fall through to buffer the increment (DB will deduplicate)
-        } else {
-            // Normal case: New day or first event - buffer timestamp
-            r.bufferIncrementDaily[key] = now
-        }
-
-        // Always add to increment buffer for flush (even if daily buffer is full)
-        r.bufferIncrement[key] = delta  // Always 1 for daily
-
-    } else {
-        // Regular increment - accumulate deltas
-        r.bufferIncrement[key] += delta
-    }
-
+    // Size-based flush check (same as before)
+    // ...
     return nil
 }
 ```
 
-**Client-Side Date Checking:**
-1. Check if we've already seen event for this user-goal today
-2. If yes (same day): Skip buffering (no duplicate increment)
-3. If no (new day or first event): Buffer the increment
+**Deduplication behavior:**
+- Multiple events for the same user-goal pair within a flush interval: latest wins
+- For stat events: the latest absolute value is kept (correct, since stats are cumulative)
+- For login events: only the latest `IncValue=1` is kept (SQL handles accumulation via `progress + inc_value`)
 
-#### Shared Date Utility Functions
-
-**Location:** `extend-challenge-common/pkg/common/dateutil.go` (Decision Q3a, Phase 5.2.2c)
-
-**Purpose:** Ensure consistent date calculation between Go code and PostgreSQL SQL `DATE()` function.
-
-**Implementation:**
-
-```go
-package dateutil
-
-import "time"
-
-// GetCurrentDateUTC returns the current date in UTC, truncated to midnight (00:00:00).
-// This matches PostgreSQL's DATE() function behavior for consistency.
-//
-// Example:
-//   - Input: 2025-10-17 14:23:45 UTC
-//   - Output: 2025-10-17 00:00:00 UTC
-func GetCurrentDateUTC() time.Time {
-    return time.Now().UTC().Truncate(24 * time.Hour)
-}
-
-// TruncateToDateUTC truncates the given time to midnight (00:00:00) in UTC.
-// This matches PostgreSQL's DATE() function behavior for consistency.
-//
-// Example:
-//   - Input: 2025-10-17 14:23:45 UTC
-//   - Output: 2025-10-17 00:00:00 UTC
-func TruncateToDateUTC(t time.Time) time.Time {
-    return t.UTC().Truncate(24 * time.Hour)
-}
-```
-
-**Usage in BufferedRepository:**
-- Daily increment date checking (IncrementProgress)
-- Ensures Go date logic matches SQL `DATE(completed_at)` in database queries
-- Prevents edge case mismatches between Go and PostgreSQL date calculations
-
-**Testing:** Integration test verifies Go date calculation matches SQL `DATE()` function (Decision Q3b, Phase 5.2.2c).
-
-**See Also:** `TECH_SPEC_DATABASE.md` for SQL date handling in `BatchIncrementProgress` query.
-
-#### Map Growth Control
-
-**Problem:** `bufferIncrementDaily` map grows unbounded as more users trigger daily increments.
-
-**Solution:** Periodic cleanup removes entries older than 48 hours.
-
-```go
-type BufferedRepository struct {
-    // ... existing fields
-    cleanupTicker *time.Ticker  // Cleanup every 1 hour
-}
-
-func NewBufferedRepository(repo GoalRepository, flushInterval time.Duration, maxBufferSize int) *BufferedRepository {
-    r := &BufferedRepository{
-        buffer:              make(map[string]*UserGoalProgress),
-        bufferIncrement:     make(map[string]int),
-        bufferIncrementDaily: make(map[string]time.Time),
-        ticker:              time.NewTicker(flushInterval),
-        cleanupTicker:       time.NewTicker(1 * time.Hour),  // NEW
-        repo:                repo,
-        maxBufferSize:       maxBufferSize,
-    }
-
-    go r.startFlusher()
-    go r.startDailyBufferCleanup()  // NEW
-
-    return r
-}
-
-func (r *BufferedRepository) startDailyBufferCleanup() {
-    for range r.cleanupTicker.C {
-        r.cleanupOldDailyEntries()
-    }
-}
-
-func (r *BufferedRepository) cleanupOldDailyEntries() {
-    r.mu.Lock()
-    defer r.mu.Unlock()
-
-    now := time.Now()
-    cutoff := now.Add(-48 * time.Hour)  // Keep last 2 days
-    cleaned := 0
-
-    for key, lastEventTime := range r.bufferIncrementDaily {
-        if lastEventTime.Before(cutoff) {
-            delete(r.bufferIncrementDaily, key)
-            cleaned++
-        }
-    }
-
-    if cleaned > 0 {
-        r.logger.Info("Cleaned up old daily increment entries",
-            "cleaned", cleaned,
-            "remaining", len(r.bufferIncrementDaily))
-    }
-}
-```
-
-**Cleanup Characteristics:**
-
-| Aspect | Value | Notes |
-|--------|-------|-------|
-| **Cleanup interval** | 1 hour | Balance between overhead and memory |
-| **Retention period** | 48 hours | Keeps today + yesterday for safety |
-| **Memory impact** | Minimal | ~40 bytes per entry × active users |
-| **Max map size** | ~100K entries | 1M daily active users × ~10% daily goals |
-
-**Growth Scenario:**
-- 1M daily active users
-- 10 daily increment goals per user
-- Worst case: 10M entries before first cleanup
-- With cleanup: Caps at ~200K entries (today + yesterday's active users)
-- Memory: 200K × 40 bytes = ~8MB (acceptable)
-
-#### Graceful Degradation When Buffer is Full
-
-**Hard Limit:** 200K entries in `bufferIncrementDaily` (Decision Q1b, Phase 5.2.2c)
-
-**Problem:** During extreme traffic (e.g., 10M daily active users), `bufferIncrementDaily` could exceed memory budget before hourly cleanup runs.
-
-**Solution:** Graceful degradation - rely on SQL `DATE()` check when buffer is full (Decision Q1d, Phase 5.2.2c)
-
-**Behavior When Buffer Reaches 200K:**
-
-1. **Check capacity** before adding new entry to `bufferIncrementDaily`
-2. **If full** (≥200K entries):
-   - Skip storing timestamp in `bufferIncrementDaily`
-   - Still add delta to `bufferIncrement` (progress tracking continues)
-   - Log warning with buffer size and user/goal info
-3. **Database handles deduplication**:
-   - `BatchIncrementProgress` SQL query uses `DATE(completed_at) = CURRENT_DATE` check
-   - Prevents same-day duplicate increments even without client-side tracking
-   - Slight performance cost (DB query instead of map lookup), but system remains functional
-
-**Degradation Characteristics:**
-
-| Aspect | Normal Operation | Degraded (Buffer Full) |
-|--------|------------------|------------------------|
-| **Client-side dedup** | ✅ Map lookup (O(1)) | ❌ Skipped |
-| **DB-side dedup** | ✅ SQL DATE() check | ✅ SQL DATE() check |
-| **Correctness** | ✅ Guaranteed | ✅ Guaranteed |
-| **Performance** | Optimal | Slightly slower (extra DB check) |
-| **Memory usage** | Bounded (200K cap) | Bounded (200K cap) |
-
-**Why This is Acceptable:**
-
-- **Rare scenario**: Requires 10M+ daily users before hourly cleanup runs
-- **Maintains correctness**: No duplicate increments, progress tracking continues
-- **Bounded memory**: Caps at 200K entries (~8MB), prevents OOM
-- **Automatic recovery**: Hourly cleanup will free space, restoring normal operation
-- **Observable**: Warning logs allow monitoring and capacity planning
-
-**Example Scenario:**
-
-```
-Day 1, 00:00: System starts, bufferIncrementDaily empty
-Day 1, 08:00: 150K users login, buffer has 150K entries
-Day 1, 09:00: Cleanup runs, keeps last 48h (~150K entries remain)
-Day 1, 16:00: Another 150K new users, buffer reaches 200K limit
-Day 1, 16:01: User #200,001 logs in:
-  - bufferIncrementDaily full, skip storing timestamp
-  - Still add to bufferIncrement
-  - SQL DATE() check prevents duplicate if user logs in again today
-Day 1, 17:00: Cleanup runs, frees entries >48h old
-Day 1, 17:01: Buffer back to normal capacity, client-side dedup resumes
-```
-
-**Monitoring:**
-
-Watch for log entries: `"bufferIncrementDaily at capacity, relying on SQL date check"`
-
-If frequent, consider:
-- Reducing cleanup interval (30 minutes instead of 1 hour)
-- Increasing hard limit (500K instead of 200K)
-- Horizontal scaling (more event handler replicas)
-
-#### Flush Integration
-
-Modified flush logic handles both buffer types using **separate transactions** (Decision: BRAINSTORM.md Q12) and **swap pattern** for faster unlock (Decision Q2, Phase 5.2.2c):
+#### Flush Method (Single COPY Path)
 
 ```go
 func (r *BufferedRepository) Flush() error {
     r.mu.Lock()
+    bufferToFlush := r.buffer
+    r.buffer = make(map[string]*domain.BufferedEvent)
+    r.mu.Unlock()
 
-    // Swap pattern: Copy all buffer references and create new empty buffers
-    // This releases the lock immediately, allowing event processing to continue
-    absoluteToFlush := r.buffer
-    r.buffer = make(map[string]*UserGoalProgress)
-
-    incrementToFlush := r.bufferIncrement
-    r.bufferIncrement = make(map[string]int)
-
-    dailyToFlush := r.bufferIncrementDaily
-    r.bufferIncrementDaily = make(map[string]time.Time)
-
-    r.mu.Unlock()  // ← Release lock BEFORE processing (Decision Q2, Phase 5.2.2c)
-
-    // Early return if nothing to flush
-    if len(absoluteToFlush) == 0 && len(incrementToFlush) == 0 {
+    if len(bufferToFlush) == 0 {
         return nil
     }
 
-    var flushErrors []error
-
-    // 1. Flush absolute/daily goals (INDEPENDENT TRANSACTION)
-    if len(absoluteToFlush) > 0 {
-        absoluteUpdates := make([]*UserGoalProgress, 0, len(absoluteToFlush))
-        for _, progress := range absoluteToFlush {
-            absoluteUpdates = append(absoluteUpdates, progress)
-        }
-
-        err := r.repo.BatchUpsertProgress(context.Background(), absoluteUpdates)
-        if err != nil {
-            r.logger.Error("Failed to flush absolute updates, will retry",
-                "count", len(absoluteUpdates),
-                "error", err)
-            flushErrors = append(flushErrors, fmt.Errorf("absolute flush: %w", err))
-
-            // Re-acquire lock to restore failed updates for retry
-            r.mu.Lock()
-            for key, progress := range absoluteToFlush {
-                if _, exists := r.buffer[key]; !exists {
-                    r.buffer[key] = progress
-                }
-            }
-            r.mu.Unlock()
-        } else {
-            r.logger.Info("Successfully flushed absolute updates",
-                "count", len(absoluteUpdates))
-            // Buffer already cleared via swap pattern (no action needed)
-        }
+    // Collect all buffered events
+    events := make([]*domain.BufferedEvent, 0, len(bufferToFlush))
+    for _, event := range bufferToFlush {
+        events = append(events, event)
     }
 
-    // 2. Flush increment goals (INDEPENDENT TRANSACTION)
-    if len(incrementToFlush) > 0 {
-        // Collect all increments into batch array
-        increments := make([]ProgressIncrement, 0, len(incrementToFlush))
-
-        for key, delta := range incrementToFlush {
-            parts := strings.Split(key, ":")
-            userID, goalID := parts[0], parts[1]
-
-            // Look up goal metadata from cache
-            goal := r.goalCache.GetGoalByID(goalID)
-            if goal == nil {
-                r.logger.Warn("Goal not found for increment", "goalID", goalID)
-                continue
-            }
-
-            // Add to batch
-            increments = append(increments, ProgressIncrement{
-                UserID:            userID,
-                GoalID:            goalID,
-                ChallengeID:       goal.ChallengeID,
-                Namespace:         r.namespace,
-                Delta:             delta,
-                TargetValue:       goal.Requirement.TargetValue,
-                IsDailyIncrement:  goal.Daily,
-            })
-        }
-
-        // Batch increment all goals in single database query
-        if len(increments) > 0 {
-            err := r.repo.BatchIncrementProgress(context.Background(), increments)
-            if err != nil {
-                r.logger.Error("Failed to flush increment updates, will retry",
-                    "count", len(increments),
-                    "error", err)
-                flushErrors = append(flushErrors, fmt.Errorf("increment flush: %w", err))
-
-                // Re-acquire lock to restore failed updates for retry
-                r.mu.Lock()
-                for key, delta := range incrementToFlush {
-                    // Accumulate with any new deltas that arrived during flush
-                    r.bufferIncrement[key] += delta
-                }
-                // Restore daily tracking map (timestamp preservation - Decision Q5, Phase 5.2.2c)
-                for key, timestamp := range dailyToFlush {
-                    if _, exists := r.bufferIncrementDaily[key]; !exists {
-                        r.bufferIncrementDaily[key] = timestamp  // Keep original timestamp
-                    }
-                }
-                r.mu.Unlock()
-            } else {
-                r.logger.Info("Successfully flushed increment updates",
-                    "count", len(increments))
-                // Buffers already cleared via swap pattern (no action needed)
-                // Note: bufferIncrementDaily was also swapped but not restored on success
-                // (Cleanup goroutine will remove old entries after 48h)
+    // Single COPY flush handles ALL event types
+    err := r.repo.BatchUpsertProgressWithCOPY(context.Background(), events)
+    if err != nil {
+        // Restore failed events for retry (same pattern as before)
+        r.mu.Lock()
+        for key, event := range bufferToFlush {
+            if _, exists := r.buffer[key]; !exists {
+                r.buffer[key] = event
             }
         }
-    }
-
-    // Return combined errors (if any), but don't fail the flush entirely
-    // This allows partial success: one buffer type can succeed while the other retries
-    if len(flushErrors) > 0 {
-        return fmt.Errorf("flush partial failure: %v", flushErrors)
+        r.mu.Unlock()
+        return err
     }
 
     return nil
 }
 ```
 
-**Transaction Strategy (BRAINSTORM.md Q12):**
-- **Option B: Separate Transactions** (APPROVED)
-- Each buffer type (absolute vs increment) uses independent transaction
-- **Benefits:**
-  - Simpler implementation (no cross-buffer coordination)
-  - Independent failure recovery (absolute success doesn't depend on increment success)
-  - Fault isolation (database error in one query type doesn't block the other)
-- **Trade-off Accepted:**
-  - Eventual consistency (one buffer might flush while other fails and retries in 1 sec)
-  - Acceptable for M1: Event-driven system with 1-sec retry interval
-
 **Key Points:**
-- Flush both absolute and increment buffers independently
-- Use `BatchIncrementProgress` for all increments in single query (vs N individual queries)
-- Keep `bufferIncrementDaily` entries even after flush (for date checking)
-- Periodic cleanup removes old entries (not flush)
-- Partial success allowed: One buffer type can succeed while the other retries
+- Single flush path (no separate absolute/increment transactions)
+- `BatchUpsertProgressWithCOPY` handles all progress modes via SQL CASE branches
+- Failed flushes restore events to buffer for retry on next interval
+- Newer events take precedence over restored events ("last write wins")
 
-**Performance Benefit:**
-```
-❌ Individual IncrementProgress calls (1,000 goals):
-  - Queries: 1,000 queries
-  - Time: ~1,000ms (1ms per query × 1,000)
-  - Network overhead: 1,000 round trips
+#### Why Single Buffer is Better
 
-✅ BatchIncrementProgress (1,000 goals):
-  - Queries: 1 query
-  - Time: ~20ms
-  - Network overhead: 1 round trip
-
-Improvement: 50× faster, 1,000× fewer round trips
-```
+| Aspect | Old (Multi-Buffer) | New (Unified Buffer) |
+|--------|-------------------|---------------------|
+| **Buffer maps** | 3 maps (`buffer`, `bufferIncrement`, `bufferIncrementDaily`) | 1 map (`buffer`) |
+| **Add methods** | 2 methods (`UpdateProgress`, `IncrementProgress`) | 1 method (`Add`) |
+| **Flush paths** | 2 separate DB calls (absolute + increment) | 1 COPY call |
+| **Daily dedup** | Client-side map + SQL DATE() fallback | SQL-only (CASE branches) |
+| **Cleanup goroutine** | Required (hourly cleanup of daily map) | Not needed |
+| **Code complexity** | High (3 maps, 2 methods, cleanup) | Low (1 map, 1 method) |
+| **Memory overhead** | ~8MB (200K daily entries) | ~200KB (1K entries) |
 
 #### Performance Impact
 
@@ -2066,15 +1589,18 @@ Improvement: 50× faster, 1,000× fewer round trips
 
 | Component | Size per Entry | Max Entries | Total Memory |
 |-----------|---------------|-------------|--------------|
-| `bufferIncrement` | ~32 bytes (string + int) | 1,000 | ~32KB |
-| `bufferIncrementDaily` | ~40 bytes (string + time.Time) | 200,000 (2 days) | ~8MB |
-| **Total** | - | - | **~8MB** (acceptable) |
+| `buffer` | ~100 bytes (BufferedEvent) | 1,000 | ~100KB |
+| **Total** | - | - | **~100KB** |
 
-**Benefits:**
-- Same-day duplicate prevention (client-side, no DB queries)
-- Bounded memory growth (periodic cleanup)
-- Fast lookups (map O(1))
-- No performance penalty for regular increments
+**Performance Benefit:**
+```
+Single COPY flush (1,000 events):
+  - Queries: 1 COPY + 1 batch UPDATE
+  - Time: ~10-20ms
+  - Network overhead: 2 round trips
+
+Result: Same 1,000,000x query reduction, simpler code
+```
 
 ### Performance Analysis
 
@@ -2313,13 +1839,14 @@ func (h *LoginHandler) OnMessage(ctx context.Context, msg *pb.UserLoggedIn) (*em
 
     h.logger.Infof("Processing login event: user=%s namespace=%s", userID, namespace)
 
-    // For login-based goals, treat as a "login_count" stat increment
-    statUpdates := map[string]int{
-        "login_count": 1,  // Simple increment for login tracking
+    // For login-based goals: Value=nil, Inc=1 (synthetic)
+    statUpdate := &domain.StatUpdate{
+        Value: nil,  // No absolute stat value for login
+        Inc:   1,    // Each login counts as 1
     }
 
     // Process using common event processor
-    err := h.processor.ProcessEvent(ctx, userID, namespace, statUpdates)
+    err := h.processor.ProcessEvent(ctx, userID, namespace, statUpdate)
     if err != nil {
         h.logger.Errorf("Failed to process login event: %v", err)
         return &emptypb.Empty{}, status.Errorf(codes.Internal, "failed to process event: %v", err)
@@ -2346,24 +1873,26 @@ func (h *StatisticHandler) OnMessage(ctx context.Context, msg *pb.StatItemUpdate
     namespace := msg.Namespace
     statCode := msg.Payload.StatCode
     value := int(msg.Payload.Value)  // Convert float64 to int
+    inc := int(msg.Payload.Inc)      // Incremental change from AGS event
 
-    h.logger.Infof("Processing stat update: user=%s stat=%s value=%d", userID, statCode, value)
+    h.logger.Infof("Processing stat update: user=%s stat=%s value=%d inc=%d", userID, statCode, value, inc)
 
-    // Create stat updates map
-    statUpdates := map[string]int{
-        statCode: value,
+    // Create StatUpdate with absolute value and incremental delta
+    statUpdate := &domain.StatUpdate{
+        Value: &value,  // Absolute stat value from AGS
+        Inc:   inc,     // Incremental delta from AGS event
     }
 
     // Process using common event processor
-    err := h.processor.ProcessEvent(ctx, userID, namespace, statUpdates)
+    err := h.processor.ProcessEvent(ctx, userID, namespace, statUpdate)
     if err != nil {
         h.logger.Errorf("Failed to process stat event: %v", err)
         return &emptypb.Empty{}, status.Errorf(codes.Internal, "failed to process event: %v", err)
     }
 
     duration := time.Since(startTime)
-    h.logger.Infof("Stat event processed: user=%s stat=%s value=%d duration=%dms",
-        userID, statCode, value, duration.Milliseconds())
+    h.logger.Infof("Stat event processed: user=%s stat=%s value=%d inc=%d duration=%dms",
+        userID, statCode, value, inc, duration.Milliseconds())
 
     return &emptypb.Empty{}, nil
 }
@@ -2399,53 +1928,50 @@ grpcServer.Serve(lis)
 
 ### ProcessEvent Method
 
+**Updated in M5:** The ProcessEvent method now uses `StatUpdate` and delegates to `processGoal()` which creates `BufferedEvent` entries for the unified buffer. Status computation is delegated to SQL CASE branches (not computed in Go).
+
 ```go
-func (p *EventProcessor) ProcessEvent(ctx context.Context, userID, namespace string, statUpdates map[string]int) error {
+func (p *EventProcessor) ProcessEvent(ctx context.Context, userID, namespace string, statUpdate *domain.StatUpdate) error {
     // 1. Acquire user lock
     lock := p.getUserLock(userID)
     lock.Lock()
     defer lock.Unlock()
 
-    // 2. For each stat update
-    for statCode, value := range statUpdates {
-        // 3. Get goals tracking this stat (O(1) cache lookup)
-        goals := p.goalCache.GetGoalsByStatCode(statCode)
+    // 2. Get goals tracking this stat (O(1) cache lookup)
+    goals := p.goalCache.GetGoalsByStatCode(statUpdate.StatCode)
 
-        for _, goal := range goals {
-            // 4. Check if already claimed
-            progress := p.getProgress(userID, goal.ID)
-            if progress != nil && progress.Status == "claimed" {
-                continue
-            }
-
-            // 5. Check prerequisites
-            if p.isGoalLocked(userID, goal) {
-                continue
-            }
-
-            // 6. Calculate new status
-            newStatus := "in_progress"
-            var completedAt *time.Time
-            if value >= goal.Requirement.TargetValue {
-                newStatus = "completed"
-                now := time.Now()
-                completedAt = &now
-            }
-
-            // 7. Buffer update
-            p.bufferedRepo.UpdateProgress(&UserGoalProgress{
-                UserID:      userID,
-                GoalID:      goal.ID,
-                ChallengeID: goal.ChallengeID,
-                Namespace:   namespace,
-                Progress:    value,
-                Status:      newStatus,
-                CompletedAt: completedAt,
-            })
+    for _, goal := range goals {
+        // 3. Check if already claimed
+        progress := p.getProgress(userID, goal.ID)
+        if progress != nil && progress.Status == "claimed" {
+            continue
         }
+
+        // 4. Check prerequisites
+        if p.isGoalLocked(userID, goal) {
+            continue
+        }
+
+        // 5. Create BufferedEvent and add to unified buffer
+        //    Status computation delegated to SQL CASE branches
+        p.processGoal(userID, namespace, goal, statUpdate)
     }
 
     return nil
+}
+
+func (p *EventProcessor) processGoal(userID, namespace string, goal *domain.Goal, statUpdate *domain.StatUpdate) {
+    event := &domain.BufferedEvent{
+        UserID:       userID,
+        GoalID:       goal.ID,
+        ChallengeID:  goal.ChallengeID,
+        Namespace:    namespace,
+        Progress:     statUpdate.Value,                  // nil for login, &value for stat
+        IncValue:     statUpdate.Inc,                    // Always >= 1
+        ProgressMode: goal.Requirement.ProgressMode,     // "absolute" or "relative"
+    }
+
+    p.bufferedRepo.Add(event)
 }
 ```
 
@@ -2486,7 +2012,8 @@ message StatItemUpdated {
 
 message StatItemPayload {
     string stat_code = 1;
-    float value = 2;
+    float value = 2;      // Absolute stat value (cumulative)
+    float inc = 3;        // Incremental change from this update
     // ... other fields
 }
 
@@ -2731,9 +2258,9 @@ logger.WithFields(logrus.Fields{
 func TestGracefulShutdown(t *testing.T) {
     repo := NewBufferedRepository(...)
 
-    // Buffer some updates
-    repo.UpdateProgress(&progress1)
-    repo.UpdateProgress(&progress2)
+    // Buffer some events
+    repo.Add(&event1)
+    repo.Add(&event2)
     assert.Equal(t, 2, repo.GetBufferSize())
 
     // Graceful shutdown
@@ -2768,7 +2295,7 @@ func (r *BufferedRepository) Flush() error {
 
     // Swap pattern: Copy buffer and create new empty buffer
     bufferToFlush := r.buffer
-    r.buffer = make(map[string]*UserGoalProgress)
+    r.buffer = make(map[string]*domain.BufferedEvent)
 
     r.mu.Unlock()  // Release lock before DB operation
 
@@ -2777,29 +2304,29 @@ func (r *BufferedRepository) Flush() error {
         return nil
     }
 
-    r.logger.Info("Flushing buffered updates", "count", len(bufferToFlush))
+    r.logger.Info("Flushing buffered events", "count", len(bufferToFlush))
 
-    // Collect updates for batch operation
-    updates := make([]*UserGoalProgress, 0, len(bufferToFlush))
-    for _, progress := range bufferToFlush {
-        updates = append(updates, progress)
+    // Collect events for batch operation
+    events := make([]*domain.BufferedEvent, 0, len(bufferToFlush))
+    for _, event := range bufferToFlush {
+        events = append(events, event)
     }
 
-    // Attempt batch UPSERT
-    err := r.repo.BatchUpsertProgress(context.Background(), updates)
+    // Attempt batch COPY flush
+    err := r.repo.BatchUpsertProgressWithCOPY(context.Background(), events)
     if err != nil {
         r.logger.Error("Failed to flush batch, will retry on next interval",
-            "count", len(updates),
+            "count", len(events),
             "error", err,
             "nextRetry", "1 second")
 
-        // ERROR RECOVERY: Re-add failed updates to buffer for retry
+        // ERROR RECOVERY: Re-add failed events to buffer for retry
         r.mu.Lock()
-        for key, progress := range bufferToFlush {
+        for key, event := range bufferToFlush {
             // Only restore if not already updated by newer event
             // (Newer event takes precedence - "last write wins")
             if _, exists := r.buffer[key]; !exists {
-                r.buffer[key] = progress
+                r.buffer[key] = event
             }
         }
         r.mu.Unlock()
@@ -2807,7 +2334,7 @@ func (r *BufferedRepository) Flush() error {
         return err
     }
 
-    r.logger.Info("Successfully flushed updates", "count", len(updates))
+    r.logger.Info("Successfully flushed events", "count", len(events))
     return nil
 }
 ```
@@ -2875,18 +2402,18 @@ Timeline:
 - Log permanently failed rows for manual investigation
 
 ```go
-// M2+ enhancement (not in M1)
+// Future enhancement: fallback to individual writes to identify bad rows
 func (r *BufferedRepository) FlushWithFallback() error {
-    err := r.repo.BatchUpsertProgress(updates)
+    err := r.repo.BatchUpsertProgressWithCOPY(ctx, events)
     if err != nil {
-        // Try individual UPSERTs to identify bad row
-        for _, update := range updates {
-            if err := r.repo.UpsertProgress(update); err != nil {
-                r.logger.Error("Permanently failed update",
-                    "userID", update.UserID,
-                    "goalID", update.GoalID,
+        // Try individual writes to identify bad row
+        for _, event := range events {
+            if err := r.repo.UpsertProgressSingle(ctx, event); err != nil {
+                r.logger.Error("Permanently failed event",
+                    "userID", event.UserID,
+                    "goalID", event.GoalID,
                     "error", err)
-                // Skip this update (don't retry)
+                // Skip this event (don't retry)
             }
         }
     }
@@ -2963,14 +2490,14 @@ func TestFlushRetryOnFailure(t *testing.T) {
     }
     repo := NewBufferedRepository(mockDB, 1*time.Second, 1000)
 
-    // Buffer some updates
-    repo.UpdateProgress(&progress1)
-    repo.UpdateProgress(&progress2)
+    // Buffer some events
+    repo.Add(&event1)
+    repo.Add(&event2)
 
     // First flush fails
     err := repo.Flush()
     assert.Error(t, err)
-    assert.Equal(t, 2, repo.GetBufferSize())  // Updates still in buffer
+    assert.Equal(t, 2, repo.GetBufferSize())  // Events still in buffer
 
     // Fix database
     mockDB.BatchUpsertError = nil
@@ -2981,34 +2508,40 @@ func TestFlushRetryOnFailure(t *testing.T) {
     assert.Equal(t, 0, repo.GetBufferSize())  // Buffer cleared
 }
 
-func TestFlushPreservesNewerUpdates(t *testing.T) {
+func TestFlushPreservesNewerEvents(t *testing.T) {
     mockDB := &MockRepository{
         BatchUpsertError: errors.New("timeout"),
     }
     repo := NewBufferedRepository(mockDB, 1*time.Second, 1000)
 
-    // Buffer update (progress=5)
-    repo.UpdateProgress(&UserGoalProgress{
-        UserID: "user1",
-        GoalID: "goal1",
-        Progress: 5,
+    progress5 := 5
+    // Buffer event (progress=5)
+    repo.Add(&domain.BufferedEvent{
+        UserID:       "user1",
+        GoalID:       "goal1",
+        Progress:     &progress5,
+        IncValue:     5,
+        ProgressMode: domain.ProgressModeAbsolute,
     })
 
     // Flush fails
     repo.Flush()
     assert.Equal(t, 1, repo.GetBufferSize())
 
+    progress10 := 10
     // New event with higher progress
-    repo.UpdateProgress(&UserGoalProgress{
-        UserID: "user1",
-        GoalID: "goal1",
-        Progress: 10,  // Newer value
+    repo.Add(&domain.BufferedEvent{
+        UserID:       "user1",
+        GoalID:       "goal1",
+        Progress:     &progress10,
+        IncValue:     5,
+        ProgressMode: domain.ProgressModeAbsolute,
     })
 
-    // Verify newer value takes precedence
+    // Verify newer event takes precedence
     assert.Equal(t, 1, repo.GetBufferSize())
     buffered := repo.GetFromBuffer("user1", "goal1")
-    assert.Equal(t, 10, buffered.Progress)  // Not 5
+    assert.Equal(t, 10, *buffered.Progress)  // Not 5
 }
 ```
 
@@ -3043,91 +2576,50 @@ M3 introduces **lazy materialization** (rows created by `/initialize` API, not b
 **M1/M2 Behavior:**
 - Events could create new rows via INSERT in UPSERT queries
 - All goals tracked by default (no assignment control)
-- `BatchUpsertProgress` and `BatchIncrementProgress` both used UPSERT
 
 **M3 Behavior:**
 - `/initialize` API creates ALL rows before events arrive (lazy materialization)
 - Users assign/unassign goals via `/v1/challenges/{id}/goals/{id}/assign` endpoint
 - `is_active` field controls whether goal receives event updates
-- `BatchIncrementProgress` changed to UPDATE-only with `is_active = true` check
-- `BatchUpsertProgress` remains UPSERT for backward compatibility (no `is_active` check)
+- `BatchUpsertProgressWithCOPY` (production) has `WHERE is_active = true` check
 
-### Query Patterns in M3
+### Query Patterns in M3/M5
 
-#### BatchIncrementProgress (UPDATE-only)
+#### BatchUpsertProgressWithCOPY (Production - COPY Path)
+
+**Updated in M5:** This is now the only flush path. It handles all progress modes via SQL CASE branches.
 
 ```sql
-UPDATE user_goal_progress
-SET
-    progress = CASE
-        WHEN is_daily = true AND DATE(updated_at) = CURRENT_DATE
-            THEN progress  -- Same day: no increment
-        ELSE progress + delta  -- New day or regular increment
-    END,
-    status = ...,
-    updated_at = NOW()
-FROM (SELECT user_id, goal_id, delta, target_value, is_daily FROM UNNEST(...)) AS t
-WHERE user_goal_progress.user_id = t.user_id
-  AND user_goal_progress.goal_id = t.goal_id
-  AND user_goal_progress.is_active = true   -- M3: Only update assigned goals
-  AND user_goal_progress.status != 'claimed';
+-- 1. COPY data into temp table
+-- 2. Batch UPDATE with SQL CASE branches for:
+--    - Baseline initialization (relative mode)
+--    - Rotation detection (expires_at < NOW())
+--    - Status computation (progress >= target)
+--    - Claimed protection (status != 'claimed')
+--    - Assignment control (is_active = true)
 ```
 
 **Key Design Points:**
-- UPDATE-only (no INSERT, relies on `/initialize` creating rows)
+- Single COPY + UPDATE replaces all old flush paths
 - `is_active = true` check in WHERE clause prevents updates to unassigned goals
-- Events for unassigned goals → UPDATE affects 0 rows (silent no-op)
+- Events for unassigned goals: UPDATE affects 0 rows (silent no-op)
 - Maintains single-query performance (no separate is_active lookup)
+- See [TECH_SPEC_M5.md](./TECH_SPEC_M5.md) for full SQL query
 
-#### BatchUpsertProgress (UPSERT)
+#### Legacy Methods (Removed in M5)
 
-```sql
-INSERT INTO user_goal_progress (
-    user_id, goal_id, challenge_id, namespace,
-    progress, status, completed_at, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-ON CONFLICT (user_id, goal_id) DO UPDATE SET
-    progress = EXCLUDED.progress,
-    status = EXCLUDED.status,
-    completed_at = EXCLUDED.completed_at,
-    updated_at = NOW()
-WHERE user_goal_progress.status != 'claimed'
-  AND user_goal_progress.is_active = true;  -- M3: Fixed for consistency
-```
-
-**Key Design Points:**
-- **DEPRECATED:** Use BatchUpsertProgressWithCOPY in production
-- **Fixed in M3:** Now includes `is_active = true` check for consistency
-- Keeps UPSERT pattern (INSERT or UPDATE) for backward compatibility  
-- Lazy materialization ensures rows exist before events arrive
-- If row missing (edge case), INSERT creates it gracefully
-- Matches behavior of BatchUpsertProgressWithCOPY (production version)
-
-### Why Different Patterns?
-
-**Increment Goals (BatchIncrementProgress):**
-- Atomic database-side accumulation required (`progress = progress + delta`)
-- Cannot use INSERT (no initial value to accumulate with)
-- Must use UPDATE-only with `is_active = true` check
-- Prevents unassigned goal updates cleanly
-
-**Absolute/Daily Goals (BatchUpsertProgress):**
-- Progress is replacement, not accumulation (`progress = new_value`)
-- Can use UPSERT for backward compatibility
-- Lazy materialization handles 99.9% of cases (rows exist)
-- INSERT fallback handles edge cases gracefully
-- **M3 Fix:** Now includes `is_active = true` check for consistency
-  1. Matches BatchUpsertProgressWithCOPY behavior (production)
-  2. Ensures tests and production behave identically
-  3. Only updates assigned goals (is_active = true)
+The following methods have been removed in the M5 refactor:
+- `BatchIncrementProgress`: Replaced by SQL CASE branches in `BatchUpsertProgressWithCOPY`
+- `IncrementProgress`: Replaced by unified `Add()` method on BufferedRepository
+- `BatchUpsertProgress` (UNNEST version): Replaced by COPY path
 
 ### Event Handler Responsibilities
 
-**Current Implementation (M3):**
-1. Event arrives → lookup affected goals from cache
-2. Buffer updates for ALL matching goals (no `is_active` check in handler)
-3. Flush calls repository methods with all buffered updates
-4. Repository filters based on `is_active` (all batch methods now have this check)
+**Current Implementation (M3+):**
+1. Event arrives -> lookup affected goals from cache
+2. Buffer events for ALL matching goals (no `is_active` check in handler)
+3. Flush calls `BatchUpsertProgressWithCOPY` with all buffered events
+4. Repository filters based on `is_active` in SQL WHERE clause
 
 **Future Optimization:**
 - Event handler could check `goal.DefaultAssigned` and user's assignment status
@@ -3137,10 +2629,9 @@ WHERE user_goal_progress.status != 'claimed'
 
 ### Performance Impact
 
-**M3 maintains M1/M2 performance:**
+**M3+ maintains M1/M2 performance:**
 - Still single query per batch (no additional is_active lookups)
-- Increment goals: 0 rows updated for unassigned goals (fast)
-- Absolute/daily goals: UPSERT succeeds (row already exists via lazy init)
+- Unassigned goals: 0 rows updated (silent no-op, fast)
 - No regression in throughput or latency
 
 ### Backward Compatibility
@@ -3148,7 +2639,7 @@ WHERE user_goal_progress.status != 'claimed'
 **M1 behavior preserved:**
 - Set `default_assigned = true` on all goals in config
 - Call `/initialize` on first login (creates all rows as active)
-- All goals receive event updates → same as M1
+- All goals receive event updates -> same as M1
 
 **M3 behavior:**
 - Set `default_assigned = true` only on beginner goals
@@ -3176,4 +2667,4 @@ WHERE user_goal_progress.status != 'claimed'
 
 ---
 
-**Document Status:** Complete - Ready for implementation
+**Document Status:** Updated for M5 - Unified buffer architecture, ProgressMode routing, SQL CASE rotation logic

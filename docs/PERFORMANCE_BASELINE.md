@@ -1,250 +1,128 @@
-# Performance Baseline Report - M2
+# Performance Baseline Report
 
-**Test Date:** [FILL IN]
-**Test Duration:** [FILL IN]
+**Last Updated:** 2026-02-28 (M5 — Time-Based Rotation)
+**Test Duration:** 30 minutes per scenario
 **Environment:** Local docker-compose
 **Resources:** 1 CPU / 1 GB per service, 2 CPU / 4 GB database
 
 ---
 
+## Glossary
+
+| Term | Meaning |
+|------|---------|
+| **p50 / p95 / p99** | Percentile latencies. p95 = 95% of requests completed within this time. |
+| **EPS** | Events Per Second — rate of incoming gRPC events from the Extend platform. |
+| **RPS** | Requests Per Second — rate of incoming HTTP API requests. |
+| **VU** | Virtual User — a simulated concurrent user in k6 load tests. |
+| **COPY** | PostgreSQL bulk-insert protocol used by the batch UPSERT flush path. |
+| **mean_exec_time** | Average time to execute a single database query (milliseconds). |
+| **max_exec_time** | Longest single execution of a database query (milliseconds). |
+| **Index Scan** | Database reads a specific row via an index (fast, targeted lookup). |
+| **Sequential Scan** | Database reads every row in a table to find matches (slower, full scan). |
+
+---
+
 ## Executive Summary
 
-Maximum sustainable capacity under resource constraints:
-- **API Requests:** [FILL IN] RPS (p95 < 500ms, error < 1%)
-- **Event Processing:** [FILL IN] EPS (p95 < 200ms, error < 1%)
-- **Combined Load:** [FILL IN] RPS + [FILL IN] EPS
+Maximum sustainable capacity under resource constraints (M5 with rotation):
+- **Event Processing:** 500 EPS sustained (gRPC p95 = 0.60ms)
+- **Concurrent Users:** 150 VUs with realistic session patterns
+- **API Throughput:** ~29 req/sec (session-based with think time)
+- **Combined Load:** 300 API RPS + 500 EPS (gRPC tail latency increases under extreme combined load)
 
-Primary bottleneck: [FILL IN]
-
----
-
-## Scenario 1: API Load (Isolated)
-
-### Test Results
-
-| RPS   | p50   | p95   | p99    | Error Rate | CPU %  | Memory |
-|-------|-------|-------|--------|-----------|--------|--------|
-| 50    | [FILL]| [FILL]| [FILL] | [FILL]    | [FILL] | [FILL] |
-| 100   | [FILL]| [FILL]| [FILL] | [FILL]    | [FILL] | [FILL] |
-| 200   | [FILL]| [FILL]| [FILL] | [FILL]    | [FILL] | [FILL] |
-| 500   | [FILL]| [FILL]| [FILL] | [FILL]    | [FILL] | [FILL] |
-| 1000  | [FILL]| [FILL]| [FILL] | [FILL]    | [FILL] | [FILL] |
-
-### Maximum Capacity
-
-- **Recommended:** [FILL IN] RPS (with acceptable error tolerance)
-- **Conservative:** [FILL IN] RPS (for <0.1% error rate)
-
-### Bottleneck Analysis
-
-At [FILL IN] RPS:
-- [Describe what happened - CPU, memory, database, etc.]
-- [Evidence from metrics]
-
-### Optimization Recommendations
-
-1. [FILL IN]
-2. [FILL IN]
-3. [FILL IN]
-4. [FILL IN]
+Primary bottleneck: PostgreSQL CPU under combined API + event load (125-160% CPU)
 
 ---
 
-## Scenario 2: Event Load (Isolated)
+## Current Baseline Numbers (M5)
 
-### Test Results
+These numbers serve as the baseline for M6 comparison.
 
-| EPS   | p50   | p95   | p99    | Error Rate | CPU %  | Memory | Buffer Size |
-|-------|-------|-------|--------|-----------|--------|--------|-------------|
-| 100   | [FILL]| [FILL]| [FILL] | [FILL]    | [FILL] | [FILL] | [FILL]      |
-| 500   | [FILL]| [FILL]| [FILL] | [FILL]    | [FILL] | [FILL] | [FILL]      |
-| 1000  | [FILL]| [FILL]| [FILL] | [FILL]    | [FILL] | [FILL] | [FILL]      |
-| 2000  | [FILL]| [FILL]| [FILL] | [FILL]    | [FILL] | [FILL] | [FILL]      |
-| 5000  | [FILL]| [FILL]| [FILL] | [FILL]    | [FILL] | [FILL] | [FILL]      |
+### gRPC Event Processing
 
-### Maximum Capacity
+| Metric | M4 Baseline | M5 Current | Change |
+|--------|-------------|------------|--------|
+| p95 | 1.22ms | 0.60ms | -51% (faster) |
+| avg | 2.19ms | 2.19ms | 0% |
+| median | — | 0.33ms | — |
 
-- **Recommended:** [FILL IN] EPS
-- **Conservative:** [FILL IN] EPS
+### HTTP API Endpoints (p95)
 
-### Bottleneck Analysis
+| Endpoint | M4 Baseline | M5 Current | Change |
+|----------|-------------|------------|--------|
+| Overall HTTP | 8.72ms | 3.89ms | -55% |
+| Batch Select | 10.03ms | 4.84ms | -52% |
+| Random Select | 9.58ms | 1.99ms | -79% |
+| Initialize | 9.19ms | 3.07ms | -67% |
+| Browse Challenges | 8.55ms | 3.53ms | -59% |
+| Claim | 0.77ms | 0.48ms | -38% |
+| Check Progress | 7.90ms | 3.52ms | -55% |
+| Rotation Status | N/A | 0.97ms | New |
 
-At [FILL IN] EPS:
-- [Describe bottleneck]
-- [Evidence]
+### Resource Utilization (at 150 VUs + 500 EPS)
 
-### Buffer Performance
+| Container | CPU % | Memory | Mem % |
+|-----------|-------|--------|-------|
+| challenge-service | 3.61% | 29 MB | 2.80% |
+| challenge-event-handler | 36.71% | 224 MB | 21.90% |
+| challenge-postgres | 105.84% | 1,412 MB | 35.30% |
+| challenge-redis | 0.34% | 5 MB | 0.02% |
 
-- Average flush time: [FILL IN] ms
-- Maximum flush time: [FILL IN] ms
-- Average buffer size: [FILL IN] entries
-- Maximum buffer size: [FILL IN] entries
+### Database Stats (30-min run at 500 EPS)
 
-### Optimization Recommendations
+| Metric | Value |
+|--------|-------|
+| Inserts | 1,203,558 |
+| Updates | 4,115,484 |
+| Live Rows | 22,500 |
+| Index Scans | 603,859,612 |
+| Sequential Scans | 1,368,609 |
+| Index/Seq Ratio | 441:1 |
+| COPY mean_exec_time (avg query time) | 1.47ms |
+| COPY max_exec_time (worst-case query time) | 86.48ms |
 
-1. [FILL IN]
-2. [FILL IN]
-3. [FILL IN]
+### Threshold Summary
 
----
-
-## Scenario 3: Combined Load
-
-### Test Results Matrix
-
-| API RPS | Event EPS | Combined Result | p95 API | p95 Event | Error Rate | Notes |
-|---------|-----------|-----------------|---------|-----------|-----------|-------|
-| 50      | 100       | [PASS/FAIL]     | [FILL]  | [FILL]    | [FILL]    | [FILL]|
-| 100     | 500       | [PASS/FAIL]     | [FILL]  | [FILL]    | [FILL]    | [FILL]|
-| 200     | 1000      | [PASS/FAIL]     | [FILL]  | [FILL]    | [FILL]    | [FILL]|
-| 500     | 2000      | [PASS/FAIL]     | [FILL]  | [FILL]    | [FILL]    | [FILL]|
-| 1000    | 5000      | [PASS/FAIL]     | [FILL]  | [FILL]    | [FILL]    | [FILL]|
-
-### Maximum Combined Capacity
-
-- **Recommended:** [FILL IN] RPS + [FILL IN] EPS
-- **Conservative:** [FILL IN] RPS + [FILL IN] EPS
-
-### Resource Contention Analysis
-
-[Describe how API and Event loads interfere with each other]
-
-### CPU Profile Analysis
-
-Top CPU consumers (from pprof):
-1. [Function name] - [percentage]%
-2. [Function name] - [percentage]%
-3. [Function name] - [percentage]%
-
-### Memory Profile Analysis
-
-Top memory allocations (from pprof):
-1. [Location] - [size] MB
-2. [Location] - [size] MB
-3. [Location] - [size] MB
-
-### Optimization Recommendations
-
-1. [FILL IN]
-2. [FILL IN]
-3. [FILL IN]
+| Threshold | Target | Actual | Status |
+|-----------|--------|--------|--------|
+| HTTP p95 | < 2,000ms | 3.89ms | PASS |
+| HTTP failed rate | < 1% | 0.00% | PASS |
+| Checks pass rate | > 99% | 100% | PASS |
+| gRPC p95 | < 500ms | 0.60ms | PASS |
+| Batch Select p95 | < 50ms | 4.84ms | PASS |
+| Rotation Status p95 | < 100ms | 0.97ms | PASS |
+| Browse Challenges p95 | < 500ms | 3.53ms | PASS |
+| Initialize p95 | < 100ms | 3.07ms | PASS |
+| Claim p95 | < 100ms | 0.48ms | PASS |
 
 ---
 
-## Scenario 4: Database Performance
+## Detailed Results
 
-### Query Performance
+For full load test analysis with pprof profiles, database deep dive, and comparison tables, see:
+- [M5_PERFORMANCE_RESULTS.md](./M5_PERFORMANCE_RESULTS.md) — M5 load test report
+- [M3_PHASE5_PERFORMANCE_RESULTS.md](./M3_PHASE5_PERFORMANCE_RESULTS.md) — M3 micro-benchmark results
+- [TECH_SPEC_M5.md](./TECH_SPEC_M5.md) — M5 micro-benchmark results (SQL CASE overhead analysis)
 
-Top 5 slowest queries:
-1. [Query] - avg: [FILL] ms, max: [FILL] ms, calls: [FILL]
-2. [Query] - avg: [FILL] ms, max: [FILL] ms, calls: [FILL]
-3. [Query] - avg: [FILL] ms, max: [FILL] ms, calls: [FILL]
-4. [Query] - avg: [FILL] ms, max: [FILL] ms, calls: [FILL]
-5. [Query] - avg: [FILL] ms, max: [FILL] ms, calls: [FILL]
+## Test Artifacts
 
-### Connection Pool Utilization
-
-- Maximum active connections: [FILL IN] / 50
-- Average active connections: [FILL IN]
-- Connection wait time: [FILL IN] ms (average)
-
-### Cache Hit Ratio
-
-- Database cache hit ratio: [FILL IN]% (target: >95%)
-- Analysis: [FILL IN]
-
-### Table Statistics
-
-- Total rows: [FILL IN]
-- Inserts: [FILL IN]
-- Updates: [FILL IN]
-- Dead rows: [FILL IN]
-- Table size: [FILL IN]
-
-### Optimization Recommendations
-
-1. [FILL IN]
-2. [FILL IN]
-3. [FILL IN]
-
----
-
-## Scenario 5: E2E Latency
-
-### Event Processing Latency
-
-- p50: [FILL IN] ms
-- p95: [FILL IN] ms
-- p99: [FILL IN] ms
-
-### Buffer Flush Performance
-
-- Average flush interval: [FILL IN] ms (target: 1000ms)
-- Average flush time: [FILL IN] ms
-- Maximum flush time: [FILL IN] ms
-- Average entries per flush: [FILL IN]
-
-### E2E Latency Calculation
-
-Event to API visibility:
-- Minimum: [event processing p50] + [~0ms if just before flush] = [FILL IN] ms
-- Maximum: [event processing p99] + [~1000ms if just after flush] = [FILL IN] ms
-- Average: [event processing p50] + [~500ms average wait] = [FILL IN] ms
-
----
-
-## Bottleneck Summary
-
-### 1. [Primary Bottleneck Name]
-   - **Impact:** [Describe impact]
-   - **Evidence:** [Metrics that prove this]
-   - **Recommendation:** [How to address]
-
-### 2. [Secondary Bottleneck Name]
-   - **Impact:** [Describe impact]
-   - **Evidence:** [Metrics that prove this]
-   - **Recommendation:** [How to address]
-
-### 3. [Tertiary Bottleneck Name]
-   - **Impact:** [Describe impact]
-   - **Evidence:** [Metrics that prove this]
-   - **Recommendation:** [How to address]
+| Scenario | Results Directory |
+|----------|-------------------|
+| Scenario 3 (combined) | `tests/loadtest/results/scenario3_combined_20260228_092911/` |
+| Scenario 4 (realistic) | `tests/loadtest/results/scenario4_m4_realistic_sessions_20260228_100012/` |
+| Scenario 5 (rotation) | `tests/loadtest/results/scenario5_m5_rotation_20260228_103116/` |
+| M4 Baseline | `tests/loadtest/results/scenario4_20251124_110149/` |
 
 ---
 
 ## Scaling Recommendations
 
-### Vertical Scaling
-
-**Configuration A: 2 CPU / 2 GB**
-- Expected capacity: [FILL IN] RPS + [FILL IN] EPS
-- Cost: 2x current
-- Use case: [FILL IN]
-
-**Configuration B: 4 CPU / 4 GB**
-- Expected capacity: [FILL IN] RPS + [FILL IN] EPS
-- Cost: 4x current
-- Use case: [FILL IN]
-
-### Horizontal Scaling
-
-**Configuration C: 3 instances @ 1 CPU / 1 GB each**
-- Expected capacity: [FILL IN] RPS + [FILL IN] EPS (3x single instance)
-- Cost: 3x current
-- Use case: High availability, load distribution
-- Requires: Load balancer, shared database
+1. **1,000 EPS (events/sec):** Add 1 event handler replica (horizontal scaling)
+2. **5,000 EPS (events/sec):** Add database read replicas, consider partitioning `user_goal_progress`
+3. **10,000 EPS (events/sec):** Implement hash partitioning (see [TECH_SPEC_DATABASE_PARTITIONING.md](./TECH_SPEC_DATABASE_PARTITIONING.md))
+4. **Rotation-specific:** No additional scaling needed — SQL CASE overhead is negligible
 
 ---
 
-## Conclusions
-
-[Summary paragraph: What did you learn? What's the real-world capacity? What's the primary limitation?]
-
-For production deployment with expected load >[FILL IN] RPS:
-- Recommended: [Vertical or horizontal scaling approach]
-- Database: [Configuration recommendations]
-- Monitoring: [Key metrics to watch]
-
----
-
-**Document Status:** Template - Fill in with test results
+**Document Status:** Filled with M5 load test results (2026-02-28). Update with M6 numbers when available.

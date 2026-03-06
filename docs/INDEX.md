@@ -1,7 +1,7 @@
 # AccelByte Extend Challenge Service - Documentation Index
 
-**Version**: M3 (Milestone 3 Complete)
-**Last Updated**: 2025-11-10
+**Version**: M5 (Milestone 5 Complete)
+**Last Updated**: 2026-03-01
 
 This document serves as the primary navigation guide for all technical documentation in the AccelByte Extend Challenge Service platform.
 
@@ -35,34 +35,44 @@ Core technical documentation for the initial milestone (M1).
 
 ---
 
-## Technical Specifications (M2 Extensions)
+## Technical Specifications (M2 Performance Profiling & Load Testing)
 
-Milestone 2 adds multiple challenges, tagging, and performance optimizations.
+Milestone 2 profiles system limits under load and validates scaling assumptions.
 
 | Document | Description | Key Topics |
 |----------|-------------|------------|
-| [**TECH_SPEC_M2.md**](TECH_SPEC_M2.md) | M2 feature specification | Multiple challenges, tags, filtering, assignment rules |
+| [**TECH_SPEC_M2.md**](TECH_SPEC_M2.md) | M2 feature specification | Load testing with k6, bottleneck discovery, scaling |
 | [**TECH_SPEC_M2_OPTIMIZATION.md**](TECH_SPEC_M2_OPTIMIZATION.md) | Performance optimizations for M2 | Query optimization, indexing strategy, caching |
 
 ---
 
-## Technical Specifications (M3 Time-Based Challenges)
+## Technical Specifications (M3 Per-User Goal Assignment Control)
 
-Milestone 3 introduces time-based challenges, schedules, and rotation.
+Milestone 3 adds per-user goal assignment, the Initialize endpoint, and activate/deactivate flows.
 
 | Document | Description | Key Topics |
 |----------|-------------|------------|
-| [**TECH_SPEC_M3.md**](TECH_SPEC_M3.md) | M3 feature specification | Schedules, timezones, rotation, prerequisites, visibility |
+| [**TECH_SPEC_M3.md**](TECH_SPEC_M3.md) | M3 feature specification | Goal assignment, initialization endpoint, activate/deactivate |
 
 ---
 
 ## Technical Specifications (M4 Batch & Random Selection)
 
-Milestone 4 adds flexible goal selection patterns (planning complete).
+Milestone 4 adds flexible goal selection patterns.
 
 | Document | Description | Key Topics |
 |----------|-------------|------------|
 | [**TECH_SPEC_M4.md**](TECH_SPEC_M4.md) | M4 feature specification | Batch manual selection, random selection, BatchUpsertGoalActive |
+
+---
+
+## Technical Specifications (M5 Time-Based Rotation)
+
+Milestone 5 adds time-based goal rotation with ProgressMode and rotation configuration.
+
+| Document | Description | Key Topics |
+|----------|-------------|------------|
+| [**TECH_SPEC_M5.md**](TECH_SPEC_M5.md) | M5 feature specification | ProgressMode (absolute/relative), rotation config, SQL CASE rotation, baseline_value, expires_at |
 
 ---
 
@@ -86,7 +96,8 @@ Performance testing, profiling, and optimization guides.
 
 | Document | Description | Key Topics |
 |----------|-------------|------------|
-| [**PERFORMANCE_BASELINE.md**](PERFORMANCE_BASELINE.md) | M1 performance baseline metrics | Throughput (500 events/sec), latency (p95), batch performance |
+| [**PERFORMANCE_BASELINE.md**](PERFORMANCE_BASELINE.md) | Current performance baseline metrics | Throughput (500 events/sec), latency (p95), batch performance |
+| [**M5_PERFORMANCE_RESULTS.md**](M5_PERFORMANCE_RESULTS.md) | M5 load test report | Rotation overhead, combined load, scaling analysis |
 | [**M3_PHASE5_PERFORMANCE_RESULTS.md**](M3_PHASE5_PERFORMANCE_RESULTS.md) | M3 Phase 5 performance results | Comparison vs M1, regression testing |
 | [**PERFORMANCE_TUNING.md**](PERFORMANCE_TUNING.md) | Performance tuning guide | Profiling, optimization techniques, bottleneck identification |
 | [**PROFILING_GUIDE.md**](PROFILING_GUIDE.md) | Go profiling guide | pprof usage, CPU/memory profiling, flame graphs |
@@ -113,10 +124,8 @@ End-to-end testing guides and test documentation.
 
 | Document | Description | Key Topics |
 |----------|-------------|------------|
-| [**tests/e2e/README.md**](../tests/e2e/README.md) | E2E testing guide (comprehensive) | All test scenarios, setup, troubleshooting |
+| [**tests/e2e/README.md**](../tests/e2e/README.md) | E2E testing guide (comprehensive) | All test scenarios, auth modes, dual-token, multi-user, debugging |
 | [**tests/e2e/QUICK_START.md**](../tests/e2e/QUICK_START.md) | E2E quick start (5 minutes) | Minimal setup, run tests immediately |
-| [**tests/e2e/E2E_TESTING_GUIDE.md**](../tests/e2e/E2E_TESTING_GUIDE.md) | Detailed E2E testing guide | Test structure, helpers, writing new tests |
-| [**tests/e2e/MULTI_USER_TESTING.md**](../tests/e2e/MULTI_USER_TESTING.md) | Multi-user testing guide | Concurrency testing, isolation verification |
 
 ---
 
@@ -140,95 +149,22 @@ Product requirements and demo app guides.
 | Document | Description | Key Topics |
 |----------|-------------|------------|
 | [**[Engagement] PRD - Challenge Service.docx.pdf**]([Engagement]%20PRD%20-%20Challenge%20Service.docx.pdf) | Product Requirements Document | Business requirements, use cases, customer needs |
-| [**demo-app/**](demo-app/) | Demo app documentation | CLI usage, TUI interface, testing tools |
+| [**demo-app/**](demo-app/) | Demo app documentation ([full index](demo-app/INDEX.md)) | CLI usage, TUI interface, testing tools, architecture |
 
 ---
 
-## Documentation for Different Audiences
+## Reading Paths by Audience
 
-### For New Developers (Getting Started)
-1. Start with [README.md](../README.md) for platform overview
-2. Read [TECH_SPEC_M1.md](TECH_SPEC_M1.md) for architecture overview
-3. Follow [tests/e2e/QUICK_START.md](../tests/e2e/QUICK_START.md) to run tests
-4. Review [TECH_SPEC_TEMPLATE_ARCHITECTURE.md](TECH_SPEC_TEMPLATE_ARCHITECTURE.md) to understand AccelByte patterns
-
-### For Backend Engineers (Implementation)
-1. [TECH_SPEC_M1.md](TECH_SPEC_M1.md) - Core architecture
-2. [TECH_SPEC_DATABASE.md](TECH_SPEC_DATABASE.md) - Database design
-3. [TECH_SPEC_EVENT_PROCESSING.md](TECH_SPEC_EVENT_PROCESSING.md) - Event handling
-4. [JWT_AUTHENTICATION.md](JWT_AUTHENTICATION.md) - Auth implementation
-5. [TECH_SPEC_TESTING.md](TECH_SPEC_TESTING.md) - Testing strategy
-
-### For DevOps/SRE (Operations)
-1. [AGS_SETUP_GUIDE.md](../AGS_SETUP_GUIDE.md) - AccelByte setup
-2. [TECH_SPEC_DEPLOYMENT.md](TECH_SPEC_DEPLOYMENT.md) - Deployment guide
-3. [TECH_SPEC_OBSERVABILITY.md](TECH_SPEC_OBSERVABILITY.md) - Monitoring
-4. [CAPACITY_PLANNING.md](CAPACITY_PLANNING.md) - Resource planning
-5. [TECH_SPEC_DATABASE_PARTITIONING.md](TECH_SPEC_DATABASE_PARTITIONING.md) - Scaling strategy
-
-### For QA Engineers (Testing)
-1. [tests/e2e/QUICK_START.md](../tests/e2e/QUICK_START.md) - Quick start
-2. [tests/e2e/README.md](../tests/e2e/README.md) - Comprehensive guide
-3. [tests/e2e/E2E_TESTING_GUIDE.md](../tests/e2e/E2E_TESTING_GUIDE.md) - Detailed guide
-4. [TECH_SPEC_TESTING.md](TECH_SPEC_TESTING.md) - Testing strategy
-
-### For Product Managers (Features)
-1. [README.md](../README.md) - Feature overview
-2. [[Engagement] PRD - Challenge Service.docx.pdf]([Engagement]%20PRD%20-%20Challenge%20Service.docx.pdf) - Product requirements
-3. [MILESTONES.md](MILESTONES.md) - Feature roadmap
-4. [STATUS.md](STATUS.md) - Current implementation status
-
-### For Performance Engineers
-1. [PERFORMANCE_BASELINE.md](PERFORMANCE_BASELINE.md) - Baseline metrics
-2. [PERFORMANCE_TUNING.md](PERFORMANCE_TUNING.md) - Tuning guide
-3. [PROFILING_GUIDE.md](PROFILING_GUIDE.md) - Profiling techniques
-4. [M3_PHASE5_PERFORMANCE_RESULTS.md](M3_PHASE5_PERFORMANCE_RESULTS.md) - Latest results
-
-### For Customers (Forking)
-1. [README.md](../README.md) - Quick start
-2. [AGS_SETUP_GUIDE.md](../AGS_SETUP_GUIDE.md) - AGS integration
-3. [TECH_SPEC_CONFIGURATION.md](TECH_SPEC_CONFIGURATION.md) - Challenge configuration
-4. [TECH_SPEC_DEPLOYMENT.md](TECH_SPEC_DEPLOYMENT.md) - Deployment
-
-### For AI Agents (Claude Code, Copilot, etc.)
-1. [CLAUDE.md](../CLAUDE.md) - Project structure, conventions, workflows
-2. [INDEX.md](INDEX.md) - This document (navigation)
-3. [STATUS.md](STATUS.md) - Current state
-4. [TECH_SPEC_M1.md](TECH_SPEC_M1.md) - Architecture overview
-
----
-
-## Documentation Organization by Type
-
-### Specifications (TECH_SPEC_*)
-- **M1**: [M1](TECH_SPEC_M1.md), [Database](TECH_SPEC_DATABASE.md), [API](TECH_SPEC_API.md), [Events](TECH_SPEC_EVENT_PROCESSING.md), [Config](TECH_SPEC_CONFIGURATION.md), [Testing](TECH_SPEC_TESTING.md), [Deployment](TECH_SPEC_DEPLOYMENT.md)
-- **M2**: [M2](TECH_SPEC_M2.md), [M2 Optimization](TECH_SPEC_M2_OPTIMIZATION.md)
-- **M3**: [M3](TECH_SPEC_M3.md)
-- **M4**: [M4](TECH_SPEC_M4.md)
-- **Cross-cutting**: [Observability](TECH_SPEC_OBSERVABILITY.md), [Template Architecture](TECH_SPEC_TEMPLATE_ARCHITECTURE.md), [Database Partitioning](TECH_SPEC_DATABASE_PARTITIONING.md)
-
-### Design Documents
-- [BRAINSTORM.md](BRAINSTORM.md) - M1 design decisions
-- [BRAINSTORM_M2.md](BRAINSTORM_M2.md) - M2 design decisions
-- [JWT_AUTHENTICATION.md](JWT_AUTHENTICATION.md) - Auth design
-- [ADR_001_OPTIMIZED_HTTP_HANDLER.md](ADR_001_OPTIMIZED_HTTP_HANDLER.md) - ADR example
-
-### Performance Documents
-- [PERFORMANCE_BASELINE.md](PERFORMANCE_BASELINE.md) - Baseline metrics
-- [M3_PHASE5_PERFORMANCE_RESULTS.md](M3_PHASE5_PERFORMANCE_RESULTS.md) - M3 results
-- [PERFORMANCE_TUNING.md](PERFORMANCE_TUNING.md) - Tuning guide
-- [PROFILING_GUIDE.md](PROFILING_GUIDE.md) - Profiling guide
-- [BATCH_INCREMENT_OPTIMIZATION.md](BATCH_INCREMENT_OPTIMIZATION.md) - Optimization example
-- [PREVENTING_OPTIMIZATION_TRAP.md](PREVENTING_OPTIMIZATION_TRAP.md) - Best practices
-
-### Operational Documents
-- [CAPACITY_PLANNING.md](CAPACITY_PLANNING.md) - Resource planning
-- [TECH_SPEC_DATABASE_PARTITIONING.md](TECH_SPEC_DATABASE_PARTITIONING.md) - Scaling strategy
-
-### Project Management
-- [STATUS.md](STATUS.md) - Current status
-- [MILESTONES.md](MILESTONES.md) - Roadmap
-- [CODE_REVIEW_ISSUES.md](CODE_REVIEW_ISSUES.md) - Known issues
+| Audience | Start with | Then read |
+|----------|-----------|-----------|
+| **New developers** | [README.md](../README.md) | [TECH_SPEC_M1.md](TECH_SPEC_M1.md), [QUICK_START.md](../tests/e2e/QUICK_START.md) |
+| **Backend engineers** | [TECH_SPEC_M1.md](TECH_SPEC_M1.md) | [Database](TECH_SPEC_DATABASE.md), [Events](TECH_SPEC_EVENT_PROCESSING.md), [JWT](JWT_AUTHENTICATION.md) |
+| **DevOps / SRE** | [AGS_SETUP_GUIDE.md](../AGS_SETUP_GUIDE.md) | [Deployment](TECH_SPEC_DEPLOYMENT.md), [Observability](TECH_SPEC_OBSERVABILITY.md), [Capacity](CAPACITY_PLANNING.md) |
+| **QA engineers** | [QUICK_START.md](../tests/e2e/QUICK_START.md) | [E2E README](../tests/e2e/README.md), [Testing](TECH_SPEC_TESTING.md) |
+| **Product managers** | [README.md](../README.md) | [MILESTONES.md](MILESTONES.md), [STATUS.md](STATUS.md) |
+| **Performance engineers** | [PERFORMANCE_BASELINE.md](PERFORMANCE_BASELINE.md) | [Tuning](PERFORMANCE_TUNING.md), [Profiling](PROFILING_GUIDE.md) |
+| **Customers (forking)** | [README.md](../README.md) | [Configuration](TECH_SPEC_CONFIGURATION.md), [AGS Setup](../AGS_SETUP_GUIDE.md), [Deployment](TECH_SPEC_DEPLOYMENT.md) |
+| **AI agents** | [CLAUDE.md](../CLAUDE.md) | [INDEX.md](INDEX.md), [STATUS.md](STATUS.md), [TECH_SPEC_M1.md](TECH_SPEC_M1.md) |
 
 ---
 

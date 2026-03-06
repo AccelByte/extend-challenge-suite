@@ -1,5 +1,12 @@
 # E2E Tests - Quick Start Guide
 
+## Prerequisites
+
+- Docker services running: `make dev-up` (from project root)
+  - First run builds Docker images (~3 min). Subsequent runs start in seconds.
+- Demo app built: `make build-demo-app`
+- `jq` installed: `apt install jq` or `brew install jq`
+
 ## TL;DR
 
 ```bash
@@ -19,7 +26,13 @@ set -a && source .env && set +a && ./run-all-tests.sh
 
 **Use when:** Testing locally against local services
 
-**Setup:** None required!
+**Setup:** Start services and build demo app (see Prerequisites above). No AGS credentials needed.
+
+**After code changes** (not needed on first run):
+```bash
+make dev-rebuild   # Rebuild Docker images with latest code
+make test-e2e      # Run tests
+```
 
 **Run:**
 ```bash
@@ -53,6 +66,7 @@ make test-e2e
    EMAIL=your.email@example.com
    PASSWORD=your-password
    CLIENT_ID=your-oauth-client-id
+   CLIENT_SECRET=your-oauth-client-secret
    NAMESPACE=your-namespace
    IAM_URL=https://demo.accelbyte.io/iam
    ```
@@ -66,7 +80,7 @@ cd tests/e2e && set -a && source .env && set +a && ./run-all-tests.sh
 
 **What you need:**
 - Real AccelByte user account (email + password)
-- OAuth2 client ID that supports password grant
+- OAuth2 client ID and secret that supports password grant
 - Namespace where you have access
 
 ---
@@ -114,7 +128,7 @@ cd tests/e2e && set -a && source .env && set +a && ./run-all-tests.sh
 | `EMAIL` | Password mode | `user@example.com` |
 | `PASSWORD` | Password mode | `your-password` |
 | `CLIENT_ID` | Password/Client mode | `abc123def456` |
-| `CLIENT_SECRET` | Client mode | `secret123` |
+| `CLIENT_SECRET` | Password/Client mode | `secret123` |
 | `NAMESPACE` | All modes | `accelbyte` or `your-game` |
 | `IAM_URL` | Password/Client mode | `https://demo.accelbyte.io/iam` |
 
@@ -138,6 +152,7 @@ AUTH_MODE=password \
 EMAIL=user@example.com \
 PASSWORD=pass123 \
 CLIENT_ID=client123 \
+CLIENT_SECRET=secret456 \
 NAMESPACE=mygame \
 ./tests/e2e/test-login-flow.sh
 
@@ -178,10 +193,14 @@ brew install jq
 - Ensure client has proper permissions
 - Check namespace is correct
 
+### Tests show wrong progress values or missing challenges
+Docker images are out of date. Rebuild:
+```bash
+make dev-rebuild
+```
+
 ---
 
 ## Next Steps
 
-- Read full documentation: [tests/e2e/README.md](./README.md)
-- Understand authentication modes: [TECH_SPEC_AUTHENTICATION.md](../../docs/demo-app/TECH_SPEC_AUTHENTICATION.md)
-- Learn about CLI mode: [TECH_SPEC_CLI_MODE.md](../../docs/demo-app/TECH_SPEC_CLI_MODE.md)
+See [README.md](./README.md) for the full E2E testing guide (auth modes, dual-token verification, multi-user testing, debugging).

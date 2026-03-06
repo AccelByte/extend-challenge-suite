@@ -52,6 +52,10 @@ CREATE TABLE user_goal_progress (
     status VARCHAR(20) NOT NULL DEFAULT 'not_started',
     completed_at TIMESTAMP NULL,
     claimed_at TIMESTAMP NULL,
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    assigned_at TIMESTAMP NULL,
+    expires_at TIMESTAMP NULL,
+    baseline_value INT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 
@@ -70,9 +74,10 @@ CREATE TABLE user_goal_progress (
 
 ### Backend Service (M1 Scope)
 
-- `GET /v1/challenges` - List all challenges with user's progress
+- `GET /v1/challenges` - List all challenges with user's progress (includes `expiresAt`, `expiresInSeconds` for rotating goals)
 - `GET /v1/challenges/{challenge_id}` - Get specific challenge with user's progress
 - `POST /v1/challenges/{challenge_id}/goals/{goal_id}/claim` - Claim reward for completed goal
+- `GET /v1/challenges/{challenge_id}/rotation` - Get rotation schedule and current period info (M5)
 - `GET /healthz` - Liveness probe
 
 All endpoints require AGS IAM Bearer token authentication (JWT validation).
@@ -157,6 +162,25 @@ AB_BASE_URL, AB_NAMESPACE                          # AGS connection
 - Specify requirements (stat checks, prerequisites)
 - Configure rewards (ITEM or WALLET)
 - See `docs/TECH_SPEC_CONFIGURATION.md` for full schema
+
+### After Code Changes
+
+**IMPORTANT:** `make dev-up` reuses existing Docker images. After changing Go code in
+any service or `extend-challenge-common`, you MUST rebuild:
+
+```bash
+make dev-rebuild    # Rebuild with cache (fast, use for iterative dev)
+make dev-restart    # Full rebuild without cache (use if cached build seems wrong)
+```
+
+Config-only changes (`challenges.json`) do NOT require rebuild — config is volume-mounted.
+
+### After Migration Changes
+
+If you modify an existing migration file (e.g., add a column to `001_*.up.sql`),
+existing databases won't pick up the change. Either:
+1. Create a new migration file (`002_*.up.sql`) with `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
+2. Or drop and recreate: `make dev-clean && make dev-up`
 
 ## Important Implementation Notes
 
@@ -415,12 +439,12 @@ extend-challenge/
   - Interface-driven design choices
 
 - **[docs/MILESTONES.md](./docs/MILESTONES.md)** - Product roadmap
-  - M1: Foundation (simple fixed challenges) ← **Current**
-  - M2: Multiple challenges & tagging
-  - M3: Time-based challenges & rotation
-  - M4: Randomized assignment
-  - M5: Prerequisites & visibility control
-  - M6: Advanced assignment & claim rules
+  - M1: Foundation (simple fixed challenges) ✅
+  - M2: Performance Profiling & Load Testing ✅
+  - M3: Per-User Goal Activation Control ✅
+  - M4: Batch & Random Goal Selection ✅
+  - M5: Time-Based Rotation ← **Current**
+  - Backlog: Multiple challenges, prerequisites, advanced rules
 
 - **[docs/TECH_SPEC_DATABASE_PARTITIONING.md](./docs/TECH_SPEC_DATABASE_PARTITIONING.md)** - Scaling strategy
   - Partition-readiness analysis (score: 9/10)

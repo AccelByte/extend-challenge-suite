@@ -16,8 +16,10 @@
    - [Health Check](#5-health-check-fq5)
    - [Batch Manual Selection (M4)](#6-batch-manual-selection-m4)
    - [Random Goal Selection (M4)](#7-random-goal-selection-m4)
-5. [Error Handling](#error-handling)
-6. [HTTP Handler Implementation](#http-handler-implementation)
+   - [Get Rotation Status (M5)](#8-get-rotation-status-m5)
+5. [Rotation Behavior for Clients](#rotation-behavior-for-clients)
+6. [Error Handling](#error-handling)
+7. [HTTP Handler Implementation](#http-handler-implementation)
 
 ---
 
@@ -90,8 +92,8 @@ Authorization: Bearer <JWT>
 |---------|-------------|
 | **New player setup** | Creates goal progress rows for players who never played before |
 | **Config sync** | Assigns new goals added to config since last login |
-| **Rotation sync** | Updates baselines for daily/weekly goals (M5) |
-| **Stat baseline capture** | Records current stat values for relative progress tracking (M5) |
+| **Rotation detection** | Detects expired rotation periods for daily/weekly/monthly goals and updates `expires_at` to the next boundary. If `onExpiry.resetProgress` is configured, progress resets to 0. If `onExpiry.allowReselection` is configured, claimed goals transition back to `not_started` for re-attempt. |
+| **Stat baseline capture** | Records current stat values for relative progress tracking |
 
 **Performance characteristics:**
 - First call (new player): ~10-20ms (creates rows, fetches stats)
@@ -100,8 +102,8 @@ Authorization: Bearer <JWT>
 **What happens if you DON'T call `/initialize`:**
 - ❌ New players won't have any goals assigned
 - ❌ Players won't receive newly added goals from config updates
-- ❌ Daily/weekly goals won't reset properly (M5)
-- ❌ Relative progress tracking won't work correctly (M5)
+- ❌ Rotating goals won't detect expired periods (progress won't reset, claimed goals won't become re-attemptable)
+- ❌ Relative progress tracking won't work correctly
 
 ### Recommended: Client Integration Flow
 
@@ -123,6 +125,10 @@ Authorization: Bearer <JWT>
 │           │                                                  │
 │           ▼                                                  │
 │  5. User plays game → Events update progress automatically   │
+│           │                                                  │
+│           ▼                                                  │
+│  6. Poll GET /v1/challenges periodically (~60s) to refresh   │
+│     rotation state and update countdown timers               │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -136,12 +142,34 @@ async function onGameStart() {
   const jwt = await agsIAM.login(username, password);
 
   // 2. Initialize challenges (REQUIRED - do this every session!)
+  //    For returning players, this triggers rotation detection:
+  //    expired rotating goals get their expires_at updated,
+  //    progress may reset, and claimed goals may become re-attemptable.
   await challengeService.initialize(jwt);
 
   // 3. Fetch and display challenges
   const challenges = await challengeService.getChallenges(jwt);
   displayChallengesUI(challenges);
+
+  // 4. Start polling for rotation updates
+  //    Use expiresInSeconds for countdown timers, not expiresAt parsing.
+  //    When expiresInSeconds reaches 0, re-fetch to get the new rotation period.
+  startRotationPolling(jwt, 60); // Poll every 60 seconds
 }
+
+async function startRotationPolling(jwt: string, intervalSeconds: number) {
+  setInterval(async () => {
+    const challenges = await challengeService.getChallenges(jwt);
+    updateCountdownTimers(challenges); // Use expiresInSeconds for countdowns
+  }, intervalSeconds * 1000);
+}
+
+// Also re-fetch on app foreground (returning from background)
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    refreshChallenges();
+  }
+});
 
 // Call on every game session start
 onGameStart();
@@ -290,7 +318,9 @@ Authorization: Bearer <JWT>
           "status": "in_progress",
           "locked": false,
           "completedAt": null,
-          "claimedAt": null
+          "claimedAt": null,
+          "expiresAt": "2025-10-16T00:00:00Z",
+          "expiresInSeconds": 3600
         },
         {
           "goalId": "reach-level-5",
@@ -311,7 +341,9 @@ Authorization: Bearer <JWT>
           "status": "not_started",
           "locked": true,
           "completedAt": null,
-          "claimedAt": null
+          "claimedAt": null,
+          "expiresAt": "",
+          "expiresInSeconds": 0
         }
       ]
     }
@@ -340,6 +372,8 @@ Authorization: Bearer <JWT>
 | `locked` | bool | `true` if prerequisites not completed |
 | `completedAt` | string/null | ISO 8601 timestamp when completed |
 | `claimedAt` | string/null | ISO 8601 timestamp when claimed |
+| `expiresAt` | string | RFC3339 timestamp when goal's current rotation period expires. Empty string `""` if goal has no rotation. |
+| `expiresInSeconds` | integer | Seconds remaining until rotation expiry. `0` if goal has no rotation. Computed from server time. |
 
 #### Response Notes
 
@@ -347,6 +381,7 @@ Authorization: Bearer <JWT>
 - **Always latest config**: If target_value changes in config, API shows progress against new target
 - **Locked goals**: `locked: true` if any prerequisite not in `completed` or `claimed` status
 - **No pagination**: Returns all challenges (assumes <100 goals per user)
+- **In-memory rotation display (M5)**: The GET endpoint applies rotation display logic in-memory (read-only). No database writes occur during GET requests. The `expiresAt` and `expiresInSeconds` fields are computed on the fly based on the current server time and the goal's rotation configuration. If a rotation boundary has been crossed since the last Initialize call, the displayed status reflects the updated rotation state without persisting changes.
 
 #### Response 401 Unauthorized
 
@@ -498,7 +533,8 @@ Authorization: Bearer <JWT>
       "description": "Defeat 10 enemies in combat",
       "isActive": true,
       "assignedAt": "2025-11-04T12:00:00Z",
-      "expiresAt": null,
+      "expiresAt": "2025-11-05T00:00:00Z",
+      "expiresInSeconds": 43200,
       "progress": 0,
       "target": 10,
       "status": "not_started",
@@ -528,13 +564,24 @@ Authorization: Bearer <JWT>
 | `totalActive` | int | Total number of active goals for this user |
 
 **When to Call:**
-- ✅ On player first login (new player onboarding)
-- ✅ On every subsequent login (config sync)
-- ✅ Idempotent: Only creates missing goals, skips existing
+- On player first login (new player onboarding)
+- On every subsequent login (config sync)
+- Idempotent: Only creates missing goals, skips existing
+
+**Lazy Rotation Detection (M5):**
+
+When a returning player calls Initialize, the system performs rotation detection for all goals with rotation configuration:
+
+- **Expiry check**: For each rotating goal, the system checks if `expires_at` has passed relative to the current server time.
+- **Period advancement**: Expired goals get their `expires_at` updated to the next rotation boundary (calculated via `rotation.CalculateNextExpiresAt` based on the goal's schedule: daily, weekly, or monthly).
+- **Progress reset**: If `onExpiry.resetProgress` is `true` in the goal's rotation config, the goal's progress resets to `0` and status returns to `not_started`.
+- **Re-selection**: If `onExpiry.allowReselection` is `true`, previously claimed goals transition back to `not_started`, allowing the player to attempt them again in the new rotation period.
+- **Database writes**: Unlike GET /challenges (which is read-only), Initialize persists rotation updates to the database so that the new `expires_at` values are durable.
 
 **Performance:**
 - First login: ~10ms (creates 5-10 rows)
 - Subsequent logins: ~1-2ms (just SELECT, usually 0 INSERTs)
+- Returning player with expired rotations: ~5-10ms (updates expires_at and potentially resets progress)
 
 #### Response 401 Unauthorized
 
@@ -924,6 +971,149 @@ Content-Type: application/json
 
 ---
 
+### 8. Get Rotation Status (M5)
+
+Retrieve rotation schedule information for a specific challenge. This is a lightweight endpoint for checking rotation timing without fetching full challenge data and user progress.
+
+```http
+GET /v1/challenges/{challenge_id}/rotation
+Authorization: Bearer <JWT>
+```
+
+#### Request
+
+**Headers:**
+```
+Authorization: Bearer <JWT>
+```
+
+**Path Parameters:**
+- `challenge_id`: Challenge identifier (e.g., `daily-quests`)
+
+#### Response 200 OK
+
+```json
+{
+  "challengeId": "daily-quests",
+  "rotation": {
+    "schedule": "daily",
+    "currentPeriodEnd": "2025-10-16T00:00:00Z",
+    "expiresInSeconds": 3600
+  }
+}
+```
+
+**Response Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `challengeId` | string | The challenge identifier |
+| `rotation` | object/null | Rotation info, or null if challenge has no rotating goals |
+| `rotation.schedule` | string | Rotation schedule: `"daily"`, `"weekly"`, or `"monthly"` |
+| `rotation.currentPeriodEnd` | string | RFC3339 timestamp when the current rotation period ends |
+| `rotation.expiresInSeconds` | integer | Seconds remaining until the current period ends. Computed from server time. |
+
+**Behavior:**
+- Returns rotation schedule information derived from the challenge's goal configuration
+- If the challenge has no goals with rotation configured, the `rotation` field is null
+- This endpoint does not modify any data (read-only)
+- Use this endpoint when you need rotation timing without the overhead of fetching full challenge data and progress
+
+#### Response 404 Not Found
+
+```json
+{
+  "errorCode": "CHALLENGE_NOT_FOUND",
+  "message": "Challenge 'invalid-id' not found"
+}
+```
+
+#### Response 401 Unauthorized
+
+```json
+{
+  "errorCode": "UNAUTHORIZED",
+  "message": "Invalid or expired token"
+}
+```
+
+---
+
+## Rotation Behavior for Clients
+
+> **M5 Feature**: Time-based rotation enables daily, weekly, and monthly goal cycles. This section describes how clients should integrate with rotation features.
+
+### Understanding `expiresAt` and `expiresInSeconds`
+
+Every goal in the API response includes two rotation-related fields:
+
+| Field | Type | Value when no rotation | Value when rotation is active |
+|-------|------|------------------------|-------------------------------|
+| `expiresAt` | string | `""` (empty string) | RFC3339 timestamp (e.g., `"2025-10-16T00:00:00Z"`) |
+| `expiresInSeconds` | integer | `0` | Positive integer (seconds until expiry) |
+
+- `expiresAt` is the absolute timestamp when the goal's current rotation period ends. This value is stored in the database and updated by the Initialize endpoint when rotation boundaries are crossed.
+- `expiresInSeconds` is a server-computed convenience field representing the number of seconds remaining until `expiresAt`. Use this field for building countdown timers instead of parsing and computing from `expiresAt` directly.
+
+### Building UI Countdown Timers
+
+```typescript
+// Use expiresInSeconds directly for countdown display
+function formatCountdown(expiresInSeconds: number): string {
+  if (expiresInSeconds <= 0) return "Expired";
+
+  const hours = Math.floor(expiresInSeconds / 3600);
+  const minutes = Math.floor((expiresInSeconds % 3600) / 60);
+  const seconds = expiresInSeconds % 60;
+
+  return `${hours}h ${minutes}m ${seconds}s`;
+}
+
+// Decrement locally between polls
+let cachedExpiry = goal.expiresInSeconds;
+setInterval(() => {
+  cachedExpiry = Math.max(0, cachedExpiry - 1);
+  updateTimerDisplay(formatCountdown(cachedExpiry));
+}, 1000);
+```
+
+**Best practices:**
+- Use `expiresInSeconds` for countdown timers, not `expiresAt`. The server computes `expiresInSeconds` from its own clock, avoiding client-server clock skew issues.
+- Decrement `expiresInSeconds` locally between API polls for smooth countdown display.
+- When the local countdown reaches 0, re-fetch challenges to get the updated rotation period.
+
+### Recommended Polling Interval
+
+- **Default interval**: Poll `GET /v1/challenges` every **60 seconds** to refresh rotation state.
+- **On app foreground**: Re-fetch immediately when the app returns from background (e.g., on `visibilitychange` or platform-specific foreground event).
+- **On countdown expiry**: When `expiresInSeconds` reaches 0, re-fetch immediately to get the new rotation period.
+- **Avoid over-polling**: Do not poll more frequently than every 10 seconds. The server computes rotation state in-memory and the values change on a daily/weekly/monthly cadence.
+
+### What Happens When Rotation Expires
+
+When a rotation period ends, the following may occur on the next Initialize call:
+
+| Scenario | Behavior |
+|----------|----------|
+| `onExpiry.resetProgress = true` | Goal progress resets to 0, status returns to `not_started` |
+| `onExpiry.resetProgress = false` | Goal progress is preserved across rotation periods |
+| `onExpiry.allowReselection = true` | Previously claimed goals transition back to `not_started`, allowing re-attempt |
+| `onExpiry.allowReselection = false` | Claimed goals remain claimed across rotation periods |
+
+**Important:** Rotation detection is triggered by the Initialize endpoint, not by GET /challenges. The GET endpoint displays rotation state in-memory (read-only) but does not persist any changes. Clients must call Initialize on session start to ensure rotation boundaries are properly detected and applied.
+
+### Using the Rotation Status Endpoint
+
+For lightweight rotation schedule queries (e.g., displaying "Resets daily" in the UI header without loading full challenge data), use:
+
+```http
+GET /v1/challenges/{challenge_id}/rotation
+```
+
+This returns only the rotation schedule and timing, without user progress or goal details. See [Get Rotation Status (M5)](#8-get-rotation-status-m5) for the full endpoint specification.
+
+---
+
 ## Error Handling
 
 ### Error Response Format
@@ -1183,6 +1373,18 @@ service Service {
       tags: "Challenges";
     };
   }
+
+  // Get rotation status for a challenge (M5)
+  rpc GetRotationStatus (GetRotationStatusRequest) returns (GetRotationStatusResponse) {
+    option (google.api.http) = {
+      get: "/v1/challenges/{challenge_id}/rotation"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Get rotation status";
+      description: "Retrieve rotation schedule information for a challenge";
+      tags: "Challenges";
+    };
+  }
 }
 
 // Request/Response Messages
@@ -1251,6 +1453,22 @@ message SelectedGoal {
   bool is_active = 9;
 }
 
+// M5: Rotation status messages
+message GetRotationStatusRequest {
+  string challenge_id = 1;
+}
+
+message GetRotationStatusResponse {
+  string challenge_id = 1;
+  RotationInfo rotation = 2;
+}
+
+message RotationInfo {
+  string schedule = 1;            // "daily", "weekly", or "monthly"
+  string current_period_end = 2;  // RFC3339 timestamp when current period ends
+  int32 expires_in_seconds = 3;   // Seconds until period end
+}
+
 // Domain Models
 message Challenge {
   string challenge_id = 1;
@@ -1271,6 +1489,9 @@ message Goal {
   bool locked = 9;
   string completed_at = 10;
   string claimed_at = 11;
+  // M5: Rotation fields
+  string expires_at = 13;        // RFC3339 timestamp when rotation period expires, empty if no rotation
+  int32 expires_in_seconds = 14; // Seconds until rotation expiry, 0 if no rotation
 }
 
 message Requirement {
@@ -1682,7 +1903,9 @@ Authorization: Bearer eyJhbGc...
           "status": "not_started",
           "locked": false,
           "completedAt": null,
-          "claimedAt": null
+          "claimedAt": null,
+          "expiresAt": "2025-10-16T00:00:00Z",
+          "expiresInSeconds": 86400
         }
       ]
     }
@@ -1726,7 +1949,9 @@ Authorization: Bearer eyJhbGc...
           "status": "completed",
           "locked": false,
           "completedAt": "2025-10-15T09:15:32Z",
-          "claimedAt": null
+          "claimedAt": null,
+          "expiresAt": "",
+          "expiresInSeconds": 0
         }
       ]
     }

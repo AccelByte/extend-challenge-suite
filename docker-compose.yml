@@ -55,6 +55,8 @@ services:
   challenge-service:
     build:
       context: ./extend-challenge-service
+      additional_contexts:
+        common: ./extend-challenge-common
       args:
         TARGETOS: ${TARGETOS:-linux}
         TARGETARCH: ${TARGETARCH:-amd64}
@@ -69,7 +71,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    env_file: .env
+    volumes:
+      - ./extend-challenge-service/config:/app/config:ro
+    env_file:
+      - path: .env
+        required: false
     environment:
       - MOCK_AGS=true
       - MOCK_AGS_LATENCY_MIN_MS=50
@@ -82,6 +88,12 @@ services:
         reservations:
           cpus: '0.5'
           memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/challenge/healthz || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     restart: unless-stopped
 
   # Event Handler (gRPC)
@@ -90,6 +102,8 @@ services:
   challenge-event-handler:
     build:
       context: ./extend-challenge-event-handler
+      additional_contexts:
+        common: ./extend-challenge-common
       args:
         TARGETOS: ${TARGETOS:-linux}
         TARGETARCH: ${TARGETARCH:-amd64}
@@ -103,7 +117,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    env_file: .env
+    volumes:
+      - ./extend-challenge-event-handler/config:/app/config:ro
+    env_file:
+      - path: .env
+        required: false
     environment:
       - BUFFER_FLUSH_INTERVAL=1s
       - BUFFER_SIZE_LIMIT=100000
@@ -116,6 +134,12 @@ services:
         reservations:
           cpus: '0.5'
           memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/metrics || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     restart: unless-stopped
 
 volumes:

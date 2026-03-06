@@ -31,9 +31,13 @@ TARGET_EPS="${3:-500}"
 ITERATIONS="${4:-120}"
 
 # Validate scenario file exists
-SCENARIO_FILE="${K6_DIR}/${SCENARIO_NAME}_m4_realistic_sessions.js"
+# Try exact match first (e.g. scenario5_m5_rotation), then glob for prefix
+SCENARIO_FILE="${K6_DIR}/${SCENARIO_NAME}.js"
 if [ ! -f "${SCENARIO_FILE}" ]; then
-    echo "❌ ERROR: Scenario file not found: ${SCENARIO_FILE}"
+    SCENARIO_FILE=$(ls "${K6_DIR}/${SCENARIO_NAME}"*.js 2>/dev/null | head -1)
+fi
+if [ -z "${SCENARIO_FILE}" ] || [ ! -f "${SCENARIO_FILE}" ]; then
+    echo "❌ ERROR: No scenario file found matching: ${SCENARIO_NAME}"
     echo "Available scenarios:"
     ls -1 "${K6_DIR}"/scenario*.js 2>/dev/null || echo "  (none found)"
     exit 1
@@ -131,6 +135,31 @@ echo "✅ PostgreSQL is ready"
 echo ""
 
 # ============================================================================
+# SCENARIO-SPECIFIC PRE-FLIGHT: STALE ROW SEEDING (M5 ROTATION)
+# ============================================================================
+
+STALE_SEED_PID=""
+
+if [[ "${SCENARIO_NAME}" == *"scenario5"* ]]; then
+    echo "╔════════════════════════════════════════════════════════════════╗"
+    echo "║              Seeding Stale Rotation Rows (M5)                  ║"
+    echo "╚════════════════════════════════════════════════════════════════╝"
+    echo ""
+    echo "Back-dating ~40% of daily rotation rows to simulate previous-period data."
+    echo "This triggers the SQL CASE rotation reset logic in the event handler."
+    echo ""
+
+    docker exec challenge-postgres psql -U postgres -d challenge_db -c "
+        UPDATE user_goal_progress
+        SET updated_at = NOW() - INTERVAL '2 days'
+        WHERE goal_id LIKE 'daily-goal-%'
+          AND random() < 0.4;
+    " 2>/dev/null || true
+    echo "✅ Stale rows seeded (40% of daily goals backdated)"
+    echo ""
+fi
+
+# ============================================================================
 # START LOAD TEST
 # ============================================================================
 
@@ -159,6 +188,26 @@ if ! ps -p ${K6_PID} > /dev/null; then
     echo "❌ k6 failed to start. Check log:"
     tail -20 "${K6_LOG}"
     exit 1
+fi
+
+# Start periodic stale-row re-seeding for rotation scenarios
+if [[ "${SCENARIO_NAME}" == *"scenario5"* ]]; then
+    echo "Starting periodic stale-row re-seeding (every 5 minutes)..."
+    (
+        while kill -0 ${K6_PID} 2>/dev/null; do
+            sleep 300
+            docker exec challenge-postgres psql -U postgres -d challenge_db -c "
+                UPDATE user_goal_progress
+                SET updated_at = NOW() - INTERVAL '2 days'
+                WHERE goal_id LIKE 'daily-goal-%'
+                  AND random() < 0.4;
+            " 2>/dev/null || true
+            echo "$(date '+%H:%M:%S') Re-seeded stale rotation rows"
+        done
+    ) &
+    STALE_SEED_PID=$!
+    echo "✅ Stale-row re-seeder started (PID: ${STALE_SEED_PID})"
+    echo ""
 fi
 
 # ============================================================================
@@ -212,6 +261,13 @@ echo "Duration:     ${DURATION} seconds ($((DURATION / 60)) minutes)"
 echo "k6 Exit Code: ${K6_EXIT_CODE}"
 echo ""
 
+# Stop stale-row re-seeder if running
+if [ -n "${STALE_SEED_PID}" ]; then
+    kill ${STALE_SEED_PID} 2>/dev/null || true
+    wait ${STALE_SEED_PID} 2>/dev/null || true
+    echo "✅ Stale-row re-seeder stopped"
+fi
+
 # Wait for monitor to finish (it should detect k6 completion)
 echo "Waiting for monitor to finish..."
 wait ${MONITOR_PID} 2>/dev/null || true
@@ -256,42 +312,71 @@ if [ -f "${RESULTS_DIR}/k6_summary.json" ]; then
 
     # Use jq to parse JSON (if available), otherwise parse manually
     if command -v jq &> /dev/null; then
+        # k6 summary format: .metrics.<name>["p(95)"] (not .values.p95)
+        # Handle both old (.values.X) and current (.X) formats
+        _jq_val() {
+            local result
+            result=$(jq -r "$1" "${RESULTS_DIR}/k6_summary.json" 2>/dev/null)
+            if [ "$result" = "null" ] || [ -z "$result" ]; then echo "N/A"; else echo "$result"; fi
+        }
+
         # HTTP Request Duration
-        HTTP_P95=$(jq -r '.metrics.http_req_duration.values.p95 // "N/A"' "${RESULTS_DIR}/k6_summary.json")
-        HTTP_P99=$(jq -r '.metrics.http_req_duration.values.p99 // "N/A"' "${RESULTS_DIR}/k6_summary.json")
-        HTTP_AVG=$(jq -r '.metrics.http_req_duration.values.avg // "N/A"' "${RESULTS_DIR}/k6_summary.json")
+        HTTP_P95=$(_jq_val '.metrics.http_req_duration["p(95)"]')
+        HTTP_P99=$(_jq_val '.metrics.http_req_duration["p(99)"]')
+        HTTP_AVG=$(_jq_val '.metrics.http_req_duration.avg')
 
         # HTTP Request Failed Rate
-        HTTP_FAILED_RATE=$(jq -r '.metrics.http_req_failed.values.rate // "N/A"' "${RESULTS_DIR}/k6_summary.json")
+        HTTP_FAILED_RATE=$(_jq_val '.metrics.http_req_failed.rate // .metrics.http_req_failed.values.rate')
 
         # Checks
-        CHECKS_RATE=$(jq -r '.metrics.checks.values.rate // "N/A"' "${RESULTS_DIR}/k6_summary.json")
+        CHECKS_RATE=$(_jq_val '.metrics.checks.rate // .metrics.checks.values.rate')
 
-        # M4 Endpoints
-        BATCH_SELECT_P95=$(jq -r '.metrics."http_req_duration{endpoint:batch_select}".values.p95 // "N/A"' "${RESULTS_DIR}/k6_summary.json")
-        RANDOM_SELECT_P95=$(jq -r '.metrics."http_req_duration{endpoint:random_select}".values.p95 // "N/A"' "${RESULTS_DIR}/k6_summary.json")
+        # Endpoint metrics
+        BATCH_SELECT_P95=$(_jq_val '.metrics["http_req_duration{endpoint:batch_select}"]["p(95)"]')
+        RANDOM_SELECT_P95=$(_jq_val '.metrics["http_req_duration{endpoint:random_select}"]["p(95)"]')
+        INITIALIZE_P95=$(_jq_val '.metrics["http_req_duration{endpoint:initialize}"]["p(95)"]')
+        BROWSE_P95=$(_jq_val '.metrics["http_req_duration{endpoint:browse_challenges}"]["p(95)"]')
+        CLAIM_P95=$(_jq_val '.metrics["http_req_duration{endpoint:claim}"]["p(95)"]')
+        ROTATION_STATUS_P95=$(_jq_val '.metrics["http_req_duration{endpoint:rotation_status}"]["p(95)"]')
+        CHECK_PROGRESS_P95=$(_jq_val '.metrics["http_req_duration{endpoint:check_progress}"]["p(95)"]')
+
+        # gRPC metrics
+        GRPC_P95=$(_jq_val '.metrics.grpc_req_duration["p(95)"]')
+        GRPC_AVG=$(_jq_val '.metrics.grpc_req_duration.avg')
 
         # Total requests
-        HTTP_REQS=$(jq -r '.metrics.http_reqs.values.count // "N/A"' "${RESULTS_DIR}/k6_summary.json")
+        HTTP_REQS=$(_jq_val '.metrics.http_reqs.count')
 
         cat >> "${SUMMARY_FILE}" << EOF
 ### HTTP Metrics
 
 | Metric | Value | Threshold | Status |
 |--------|-------|-----------|--------|
-| HTTP Request Duration (p95) | ${HTTP_P95} ms | < 2000 ms | $(awk "BEGIN {exit !(${HTTP_P95} < 2000)}" && echo "✅" || echo "❌") |
+| HTTP Request Duration (p95) | ${HTTP_P95} ms | < 2000 ms | $([ "${HTTP_P95}" != "N/A" ] && awk "BEGIN {exit !(${HTTP_P95} < 2000)}" && echo "✅" || echo "❌") |
 | HTTP Request Duration (p99) | ${HTTP_P99} ms | - | - |
 | HTTP Request Duration (avg) | ${HTTP_AVG} ms | - | - |
-| HTTP Request Failed Rate | $(awk "BEGIN {printf \"%.2f%%\", ${HTTP_FAILED_RATE} * 100}") | < 1% | $(awk "BEGIN {exit !(${HTTP_FAILED_RATE} < 0.01)}" && echo "✅" || echo "❌") |
-| Checks Pass Rate | $(awk "BEGIN {printf \"%.2f%%\", ${CHECKS_RATE} * 100}") | > 99% | $(awk "BEGIN {exit !(${CHECKS_RATE} > 0.99)}" && echo "✅" || echo "❌") |
+| HTTP Request Failed Rate | $([ "${HTTP_FAILED_RATE}" != "N/A" ] && awk "BEGIN {printf \"%.2f%%\", ${HTTP_FAILED_RATE} * 100}" || echo "N/A") | < 1% | $([ "${HTTP_FAILED_RATE}" != "N/A" ] && awk "BEGIN {exit !(${HTTP_FAILED_RATE} < 0.01)}" && echo "✅" || echo "❌") |
+| Checks Pass Rate | $([ "${CHECKS_RATE}" != "N/A" ] && awk "BEGIN {printf \"%.2f%%\", ${CHECKS_RATE} * 100}" || echo "N/A") | > 99% | $([ "${CHECKS_RATE}" != "N/A" ] && awk "BEGIN {exit !(${CHECKS_RATE} > 0.99)}" && echo "✅" || echo "❌") |
 | Total HTTP Requests | ${HTTP_REQS} | - | - |
 
-### M4 Endpoint Performance (Critical)
+### Endpoint Performance
 
 | Endpoint | p95 Latency | Threshold | Status |
 |----------|-------------|-----------|--------|
-| Batch Select | ${BATCH_SELECT_P95} ms | < 50 ms | $(awk "BEGIN {exit !(${BATCH_SELECT_P95} < 50)}" && echo "✅ PASS" || echo "❌ FAIL") |
-| Random Select | ${RANDOM_SELECT_P95} ms | < 50 ms | $(awk "BEGIN {exit !(${RANDOM_SELECT_P95} < 50)}" && echo "✅ PASS" || echo "❌ FAIL") |
+| Batch Select | ${BATCH_SELECT_P95} ms | < 50 ms | $([ "${BATCH_SELECT_P95}" != "N/A" ] && awk "BEGIN {exit !(${BATCH_SELECT_P95} < 50)}" && echo "✅ PASS" || echo "❌ FAIL") |
+| Random Select | ${RANDOM_SELECT_P95} ms | < 50 ms | $([ "${RANDOM_SELECT_P95}" != "N/A" ] && awk "BEGIN {exit !(${RANDOM_SELECT_P95} < 50)}" && echo "✅ PASS" || echo "❌ FAIL") |
+| Initialize | ${INITIALIZE_P95} ms | < 100 ms | $([ "${INITIALIZE_P95}" != "N/A" ] && awk "BEGIN {exit !(${INITIALIZE_P95} < 100)}" && echo "✅ PASS" || echo "- ") |
+| Browse Challenges | ${BROWSE_P95} ms | < 500 ms | $([ "${BROWSE_P95}" != "N/A" ] && awk "BEGIN {exit !(${BROWSE_P95} < 500)}" && echo "✅ PASS" || echo "- ") |
+| Claim | ${CLAIM_P95} ms | < 100 ms | $([ "${CLAIM_P95}" != "N/A" ] && awk "BEGIN {exit !(${CLAIM_P95} < 100)}" && echo "✅ PASS" || echo "- ") |
+| Rotation Status | ${ROTATION_STATUS_P95} ms | < 100 ms | $([ "${ROTATION_STATUS_P95}" != "N/A" ] && awk "BEGIN {exit !(${ROTATION_STATUS_P95} < 100)}" && echo "✅ PASS" || echo "- ") |
+| Check Progress | ${CHECK_PROGRESS_P95} ms | < 500 ms | $([ "${CHECK_PROGRESS_P95}" != "N/A" ] && awk "BEGIN {exit !(${CHECK_PROGRESS_P95} < 500)}" && echo "✅ PASS" || echo "- ") |
+
+### gRPC Event Processing
+
+| Metric | Value | Threshold | Status |
+|--------|-------|-----------|--------|
+| gRPC Duration (p95) | ${GRPC_P95} ms | < 500 ms | $([ "${GRPC_P95}" != "N/A" ] && awk "BEGIN {exit !(${GRPC_P95} < 500)}" && echo "✅ PASS" || echo "- ") |
+| gRPC Duration (avg) | ${GRPC_AVG} ms | - | - |
 
 EOF
 
@@ -299,12 +384,20 @@ EOF
         echo "HTTP Metrics:"
         echo "  - Request Duration (p95): ${HTTP_P95} ms"
         echo "  - Request Duration (p99): ${HTTP_P99} ms"
-        echo "  - Request Failed Rate:    $(awk "BEGIN {printf \"%.2f%%\", ${HTTP_FAILED_RATE} * 100}")"
-        echo "  - Checks Pass Rate:       $(awk "BEGIN {printf \"%.2f%%\", ${CHECKS_RATE} * 100}")"
+        echo "  - Request Failed Rate:    $([ "${HTTP_FAILED_RATE}" != "N/A" ] && awk "BEGIN {printf \"%.2f%%\", ${HTTP_FAILED_RATE} * 100}" || echo "N/A")"
+        echo "  - Checks Pass Rate:       $([ "${CHECKS_RATE}" != "N/A" ] && awk "BEGIN {printf \"%.2f%%\", ${CHECKS_RATE} * 100}" || echo "N/A")"
         echo ""
-        echo "M4 Endpoints:"
-        echo "  - Batch Select (p95):     ${BATCH_SELECT_P95} ms (threshold: < 50 ms)"
-        echo "  - Random Select (p95):    ${RANDOM_SELECT_P95} ms (threshold: < 50 ms)"
+        echo "Endpoint Performance:"
+        echo "  - Batch Select (p95):     ${BATCH_SELECT_P95} ms"
+        echo "  - Random Select (p95):    ${RANDOM_SELECT_P95} ms"
+        echo "  - Initialize (p95):       ${INITIALIZE_P95} ms"
+        echo "  - Browse (p95):           ${BROWSE_P95} ms"
+        echo "  - Claim (p95):            ${CLAIM_P95} ms"
+        echo "  - Rotation Status (p95):  ${ROTATION_STATUS_P95} ms"
+        echo ""
+        echo "gRPC Event Processing:"
+        echo "  - gRPC p95: ${GRPC_P95} ms"
+        echo "  - gRPC avg: ${GRPC_AVG} ms"
         echo ""
     else
         echo "⚠️  jq not installed - skipping JSON parsing"

@@ -4,6 +4,7 @@ CLI-based E2E tests for the Challenge Service using the demo app.
 
 ## Prerequisites
 
+- Docker images up-to-date with source code: `make dev-rebuild` (run after any Go code changes)
 - Docker Compose services running: `make dev-up`
 - Demo app built: `cd extend-challenge-demo-app && go build -o bin/challenge-demo ./cmd/challenge-demo/`
 - `jq` installed: `apt install jq` or `brew install jq`
@@ -134,6 +135,41 @@ NAMESPACE=mygame \
 | `test-mixed-goals.sh` | All 3 goal types working together | Absolute, increment, daily goals |
 | `test-buffering-performance.sh` | Event throughput and batch UPSERT performance | 1000 events, buffering, performance |
 
+### M3 Feature Tests
+
+| Test Script | Description | Coverage |
+|-------------|-------------|----------|
+| `test-m3-initialization.sh` | Player initialization and default goal assignment | M3 initialization flow |
+| `test-inactive-goal-filtering.sh` | Inactive goals filtered from API responses | M3 goal activation control |
+
+### M4 Feature Tests
+
+| Test Script | Description | Coverage |
+|-------------|-------------|----------|
+| `test-m4-batch-selection.sh` | Batch goal selection mechanics | M4 batch selection |
+| `test-m4-random-selection.sh` | Random goal selection from pool | M4 random selection |
+
+### M5 Feature Tests (Time-Based Rotation)
+
+| Test Script | Description | Coverage |
+|-------------|-------------|----------|
+| `test-m5-rotation-basic.sh` | Relative progress mode with baseline calculation | Baseline init, relative progress, completion |
+| `test-m5-rotation-reset.sh` | Daily rotation with progress reset | Display-only rotation, SQL CASE reset, baseline reset |
+| `test-m5-rotation-no-reset.sh` | Weekly rotation preserving progress | `resetProgress=false`, progress survives rotation |
+| `test-m5-rotation-claimed.sh` | Claimed goal behavior across rotation | `allowReselection` true vs false |
+| `test-m5-rotation-status.sh` | Rotation status endpoint | `GET /v1/challenges/{id}/rotation` |
+| `test-m5-rotation-expiry-fields.sh` | Expiry fields on rotation goals | `expiresAt`, `expiresInSeconds` presence |
+| `test-m5-rotation-claim-guard.sh` | Claim rejected after rotation boundary | Stale claim rejection, DB status preserved |
+| `test-m5-rotation-full-cycle.sh` | Complete->claim->rotate->repeat cycle | Full repeatable daily challenge story |
+| `test-m5-rotation-initialize.sh` | Returning player rotation catch-up | Initialization after missed rotation periods |
+| `test-m5-rotation-multi-period.sh` | Multiple missed rotation periods | 7 missed periods equivalent to 1 |
+| `test-m5-rotation-login.sh` | Login events with rotation goals | Login event source + rotation mechanics |
+| `test-m5-rotation-monthly.sh` | Monthly rotation schedule | Monthly boundary, expiry <= 31 days |
+| `test-m5-rotation-completed-preserved.sh` | Completed preserved when resetProgress=false | Completed status survives rotation |
+| `test-m5-rotation-expiry-on-init.sh` | ExpiresAt set before any events | Expiry populated at initialization |
+| `test-m5-rotation-mixed-schedules.sh` | Mixed daily+weekly expiry in same response | Different schedules, correct expiry ranges |
+| `test-m5-rotation-claim-guard-error.sh` | Claim guard error response details | Error message validation |
+
 ### Error Scenario Tests
 
 | Test Script | Description | Coverage |
@@ -226,20 +262,54 @@ brew install jq
 - Check event handler: `docker compose logs challenge-event-handler`
 - Increase wait times in test scripts if needed
 
+### Tests fail with unexpected progress values or missing goals
+This usually means Docker images are stale (built before recent code/config changes):
+```bash
+# Rebuild images with latest code
+make dev-rebuild
+
+# Or if config-only change, just restart (config is volume-mounted)
+docker compose restart
+```
+
 ## Directory Structure
 
 ```
 tests/e2e/
 ├── README.md                          # This file
+├── QUICK_START.md                     # Quick start guide
 ├── .env.example                       # Example configuration
 ├── helpers.sh                         # Test helper functions
-├── run-all-tests.sh                   # Test runner
+├── run-all-tests.sh                   # Test runner (all 34 tests)
 ├── test-login-flow.sh                 # Login flow test
 ├── test-stat-flow.sh                  # Stat update test
 ├── test-daily-goal.sh                 # Daily goal test
 ├── test-prerequisites.sh              # Prerequisites test
 ├── test-mixed-goals.sh                # Mixed goals test
-└── test-buffering-performance.sh      # Performance test
+├── test-buffering-performance.sh      # Performance test
+├── test-m3-initialization.sh          # M3: Player initialization
+├── test-inactive-goal-filtering.sh    # M3: Inactive goal filtering
+├── test-m4-batch-selection.sh         # M4: Batch selection
+├── test-m4-random-selection.sh        # M4: Random selection
+├── test-m5-rotation-basic.sh          # M5: Relative progress & baseline
+├── test-m5-rotation-reset.sh          # M5: Daily rotation with reset
+├── test-m5-rotation-no-reset.sh       # M5: Weekly rotation, no reset
+├── test-m5-rotation-claimed.sh        # M5: Claimed goal across rotation
+├── test-m5-rotation-status.sh         # M5: Rotation status endpoint
+├── test-m5-rotation-expiry-fields.sh  # M5: Expiry field validation
+├── test-m5-rotation-claim-guard.sh    # M5: Claim guard after rotation
+├── test-m5-rotation-full-cycle.sh     # M5: Full rotation cycle
+├── test-m5-rotation-initialize.sh     # M5: Returning player catch-up
+├── test-m5-rotation-multi-period.sh   # M5: Multiple missed periods
+├── test-m5-rotation-login.sh          # M5: Login events with rotation
+├── test-m5-rotation-monthly.sh        # M5: Monthly rotation schedule
+├── test-m5-rotation-completed-preserved.sh  # M5: Completed preserved (no reset)
+├── test-m5-rotation-expiry-on-init.sh # M5: Expiry set at initialization
+├── test-m5-rotation-mixed-schedules.sh # M5: Mixed daily+weekly expiry
+├── test-m5-rotation-claim-guard-error.sh # M5: Claim guard error response
+├── test-error-scenarios.sh            # Error scenarios
+├── test-reward-failures.sh            # Reward failure handling
+└── test-multi-user.sh                 # Multi-user concurrency
 ```
 
 ## CI/CD Integration
@@ -289,6 +359,52 @@ When adding new tests:
 5. Test with both mock and real authentication
 6. Update this README with new test description
 7. Add test to `run-all-tests.sh`
+
+## Dual Token Authentication (AGS Verification)
+
+For full AGS Platform verification, tests support a dual-token mode that uses
+a **user token** (password grant) for Challenge Service operations and an
+**admin token** (client credentials) for verifying rewards in AGS Platform.
+
+Add these to your `.env`:
+```bash
+ADMIN_CLIENT_ID=admin-client-id
+ADMIN_CLIENT_SECRET=admin-client-secret
+```
+
+Admin client needs these IAM permissions:
+- `NAMESPACE:{namespace}:USER:*:ENTITLEMENT [READ]`
+- `NAMESPACE:{namespace}:USER:*:WALLET [READ]`
+
+Helper functions for verification:
+- `verify_entitlement_granted(item_id)` - Checks item entitlement was granted
+- `verify_wallet_balance(currency_code, min_balance)` - Checks wallet meets minimum
+- `verify_wallet_increased(currency, initial, increase)` - Checks wallet delta
+
+If admin credentials are not provided, verification is skipped gracefully (no test failures).
+
+## Multi-User Test Details
+
+`test-multi-user.sh` runs 10 concurrent users to validate:
+- **User isolation** - Independent progress, no data leakage
+- **Concurrent event processing** - 10 users trigger events simultaneously
+- **Concurrent claims** - 10 users claim rewards at the same time
+- **Per-user mutex** - No race conditions
+- **Transaction locking** - No double-claims
+
+In **password mode**, the test auto-creates and auto-deletes 10 test users via AGS IAM API
+(requires `ADMIN:NAMESPACE:*:USER` CREATE permission on admin client).
+
+## Debugging Tips
+
+```bash
+# Enable bash debug mode
+bash -x ./test-login-flow.sh
+
+# Check database state
+docker compose exec postgres psql -U postgres -d challenge_db \
+  -c "SELECT * FROM user_goal_progress WHERE user_id = 'test-user-e2e';"
+```
 
 ## Related Documentation
 
