@@ -283,6 +283,7 @@ tests/loadtest/
 │   ├── scenario3_smoke.js             # Quick smoke test (~5 min)
 │   ├── scenario4_m4_realistic_sessions.js  # M4 realistic sessions
 │   ├── scenario5_m5_rotation.js            # M5 rotation stress test
+│   ├── scenario6_m6_cleanup.js             # M6 cleanup validation
 │   └── README_SCENARIO4.md            # Scenario 4 documentation
 ├── fixtures/                          # Test data (pre-generated)
 │   ├── challenges.json                # 12 challenges, ~600 goals
@@ -302,7 +303,8 @@ tests/loadtest/
 │   └── analyze_db_performance.sql
 ├── sql/                               # SQL analysis queries
 │   ├── investigate_init_performance.sql
-│   └── quick_benchmark.sql
+│   ├── quick_benchmark.sql
+│   └── seed_expired_rows.sql          # M6 cleanup seed data (100K rows)
 └── results/                           # Test output (gitignored)
 ```
 
@@ -319,12 +321,14 @@ tests/loadtest/
 | 3 (init) | `scenario3_init_only.js` | Init investigation | 10m | No | Debug init performance |
 | 4 | `scenario4_m4_realistic_sessions.js` | M4 realistic | 30m | Yes | M4/M5 feature validation |
 | 5 | `scenario5_m5_rotation.js` | M5 rotation stress | 30m | Yes | Rotation-specific validation |
+| 6 | `scenario6_m6_cleanup.js` | M6 cleanup validation | 30m | Yes | Cleanup regression test |
 
 **Tips:**
 - Start with **scenario1** or **scenario3_smoke** for a quick sanity check.
 - Use **scenario3_combined** for pre-release stress testing.
 - Use **scenario4** for M4+ feature validation with realistic user sessions.
 - Use **scenario5** for M5 rotation-specific validation (expiresAt, rotation status, rotation goal selection).
+- Use **scenario6** for M6 cleanup validation (background cleanup regression, GDPR delete, Prometheus metrics monitoring).
 - The "Duration" column shows how long a single k6 run takes. The detailed sections below describe multi-level testing strategies that run the same script multiple times.
 
 ---
@@ -543,6 +547,83 @@ DB_SEED_STALE_ROWS=true ./run_and_analyze_loadtest.sh scenario5_m5_rotation 150 
 - `expiresAt` checks > 99% pass rate
 
 **Performance results:** See [M5_PERFORMANCE_RESULTS.md](../../docs/M5_PERFORMANCE_RESULTS.md)
+
+---
+
+### Scenario 6: M6 Cleanup Validation
+
+**Objective:** Validate that M6 background cleanup goroutine does not regress API or event latency under sustained load
+
+**Duration:** 30 min per run
+
+This scenario extends scenario 5 with:
+- Background Prometheus metrics scraping to monitor cleanup goroutine activity
+- GDPR data deletion endpoint (`DELETE /v1/users/me/data`) called by 10% of user sessions
+- Pre-seeded 100K expired rows for the cleanup goroutine to process during the test
+
+**Pre-requisites:**
+```bash
+# 1. Start services with fast cleanup interval
+CLEANUP_INTERVAL_MINUTES=1 make dev-up-loadtest
+
+# 2. Seed 100K expired rows
+docker exec -i challenge-postgres psql -U postgres -d challenge_db \
+  < tests/loadtest/sql/seed_expired_rows.sql
+
+# 3. Verify seed data
+docker exec challenge-postgres psql -U postgres -d challenge_db \
+  -c "SELECT COUNT(*) FROM user_goal_progress WHERE user_id LIKE 'cleanup-test-user-%';"
+# Expected: 100000
+
+# 4. Verify metrics endpoint
+curl -s http://localhost:8080/metrics | grep challenge_cleanup
+```
+
+**Run:**
+```bash
+# Using automated orchestrator (recommended)
+cd scripts && ./run_and_analyze_loadtest.sh scenario6_m6_cleanup 150 500 120
+
+# Or directly with k6
+cd tests/loadtest
+K6_WEB_DASHBOARD=true TARGET_VUS=150 TARGET_EPS=500 ITERATIONS=120 k6 run \
+  --out json=results/scenario6/test.json \
+  --summary-export=results/scenario6/summary.json \
+  k6/scenario6_m6_cleanup.js
+```
+
+**Monitor during test:**
+```bash
+# Watch cleanup metrics (updates every minute)
+watch -n 10 'curl -s http://localhost:8080/metrics | grep challenge_cleanup'
+
+# Watch service logs for cleanup activity
+docker logs -f challenge-service 2>&1 | grep -i cleanup
+
+# Monitor table row count (should decrease as cleanup runs)
+watch -n 30 'docker exec challenge-postgres psql -U postgres -d challenge_db \
+  -c "SELECT COUNT(*) FROM user_goal_progress WHERE user_id LIKE '\''cleanup-test-user-%'\'' AND status != '\''claimed'\'';"'
+```
+
+**Success criteria:**
+- All M5 endpoint thresholds still pass (no regression)
+- gdpr_delete p95 < 500ms
+- metrics_scrape p95 < 200ms
+- `challenge_cleanup_rows_deleted_total` increases during test
+- `challenge_cleanup_errors_total` = 0
+- Overall http_req_failed < 1%
+
+**Post-test verification:**
+```bash
+# Check remaining seed rows (claimed rows are preserved, others should be deleted)
+docker exec challenge-postgres psql -U postgres -d challenge_db \
+  -c "SELECT status, COUNT(*) FROM user_goal_progress WHERE user_id LIKE 'cleanup-test-user-%' GROUP BY status;"
+
+# Final cleanup metrics
+curl -s http://localhost:8080/metrics | grep challenge_cleanup
+```
+
+**Performance results:** See [M6_PERFORMANCE_RESULTS.md](../../docs/M6_PERFORMANCE_RESULTS.md)
 
 ---
 
@@ -888,6 +969,7 @@ K6_WEB_DASHBOARD=true TARGET_EPS=1000 k6 run --out json=results/scenario2/test.j
 K6_WEB_DASHBOARD=true TARGET_RPS=200 TARGET_EPS=1000 k6 run --out json=results/scenario3/test.json k6/scenario3_combined.js  # ~30 min
 K6_WEB_DASHBOARD=true k6 run k6/scenario3_smoke.js  # ~5 min
 K6_WEB_DASHBOARD=true TARGET_VUS=150 TARGET_EPS=500 ITERATIONS=120 k6 run k6/scenario5_m5_rotation.js  # ~30 min
+K6_WEB_DASHBOARD=true TARGET_VUS=150 TARGET_EPS=500 ITERATIONS=120 k6 run k6/scenario6_m6_cleanup.js  # ~30 min (seed expired rows first)
 
 # Run all scenarios
 ./scripts/run_all_scenarios.sh
