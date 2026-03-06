@@ -86,6 +86,16 @@ Milestone 6 adds background expired row cleanup and GDPR user deletion.
 
 ---
 
+## Visual Diagrams
+
+Mermaid flow diagrams for key system flows — renders on GitHub and [mermaid.live](https://mermaid.live).
+
+| Document | Description | Key Topics |
+|----------|-------------|------------|
+| [**VISUAL_FLOWS.md**](VISUAL_FLOWS.md) | Visual flow diagrams (8 Mermaid diagrams) | Architecture, event pipeline, state machine, claiming, rotation, cleanup, GDPR |
+
+---
+
 ## Architecture & Design
 
 Deep dive into design decisions and system architecture.
