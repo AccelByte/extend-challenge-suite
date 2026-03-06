@@ -205,8 +205,9 @@ sequenceDiagram
 Three patterns for controlling which goals a player works on. Game developers choose based on their UX needs.
 
 ```mermaid
-flowchart TD
+flowchart LR
     subgraph individual ["Individual Selection (M3)"]
+        direction LR
         I1["Client calls<br/>PUT /goals/:id/active"] --> I2{Goal exists<br/>in config?}
         I2 -->|No| I3[404 Not Found]
         I2 -->|Yes| I4[UPSERT row<br/>is_active = true]
@@ -214,6 +215,7 @@ flowchart TD
     end
 
     subgraph batch ["Batch Selection (M4)"]
+        direction LR
         B1[Client calls<br/>POST /goals/batch-select<br/>goalIds: list] --> B2{All IDs valid?}
         B2 -->|No| B3[400 Bad Request<br/>invalid goal IDs]
         B2 -->|Yes| B4[BatchUpsertGoalActive<br/>single SQL for all goals]
@@ -221,12 +223,15 @@ flowchart TD
     end
 
     subgraph random ["Random Selection (M4)"]
+        direction LR
         R1[Client calls<br/>POST /goals/random-select<br/>count: N] --> R2[Filter available<br/>goals from config]
         R2 --> R3[Exclude already<br/>active goals]
         R3 --> R4[Shuffle &<br/>pick N goals]
         R4 --> R5[BatchUpsertGoalActive<br/>single SQL]
         R5 --> R6[N random goals<br/>now active]
     end
+
+    individual ~~~ batch ~~~ random
 ```
 
 ---
