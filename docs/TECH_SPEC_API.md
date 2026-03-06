@@ -1161,6 +1161,8 @@ No request body required. User ID is extracted from the JWT token. Namespace is 
 DELETE FROM user_goal_progress WHERE user_id = $1 AND namespace = $2
 ```
 
+> **See also:** [TECH_SPEC_M6.md](./TECH_SPEC_M6.md) for expired row cleanup design, GDPR repository interface, and background cleanup architecture.
+
 ---
 
 ## Error Handling

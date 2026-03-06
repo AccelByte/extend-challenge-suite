@@ -128,6 +128,8 @@ DeleteExpiredRows(ctx context.Context, namespace string, cutoff time.Time, batch
 DeleteUserData(ctx context.Context, namespace string, userID string) (int64, error)
 ```
 
+> **GDPR Rate Limiting:** The HTTP `DELETE /v1/users/me/data` endpoint has per-user rate limiting (1 request per minute, per-replica `sync.Map`). See [TECH_SPEC_API.md](./TECH_SPEC_API.md#gdpr-data-deletion) for the full endpoint specification.
+
 ---
 
 ## Configuration
@@ -140,6 +142,13 @@ DeleteUserData(ctx context.Context, namespace string, userID string) (int64, err
 | `CLEANUP_INTERVAL_MINUTES` | int | `60` | Minutes between cleanup cycles (default: 1 hour) |
 | `CLEANUP_RETENTION_DAYS` | int | `7` | Days after expiry before rows are deleted |
 | `CLEANUP_BATCH_SIZE` | int | `1000` | Rows deleted per batch |
+| `CLEANUP_MAX_BATCHES_PER_CYCLE` | int | `100` | Max batches per cleanup cycle (min: 1) |
+| `CLEANUP_BATCH_PAUSE_MS` | int | `50` | Pause between batches in ms (min: 10, max: 5000) |
+| `CLEANUP_INITIAL_MAX_BATCHES` | int | `1000` | Max batches during initial turbo mode (min: 1) |
+| `CLEANUP_INITIAL_CYCLES` | int | `3` | Number of startup cycles using turbo mode (min: 0) |
+| `CLEANUP_RETRY_BACKOFF_SECONDS` | int | `5` | Backoff between retry attempts on DB errors (min: 1, max: 60) |
+
+> **Turbo Mode:** On first startup (or after long downtime), a large backlog of expired rows may exist. Turbo mode uses a higher batch limit (`CLEANUP_INITIAL_MAX_BATCHES`: 1,000 vs `CLEANUP_MAX_BATCHES_PER_CYCLE`: 100) for the first N cycles (`CLEANUP_INITIAL_CYCLES`: 3) to clear backlogs faster before settling to the normal pace.
 
 ### Helper Function: `GetEnvBool`
 
@@ -939,26 +948,20 @@ This is safe because `(user_id, goal_id)` is a globally unique primary key — a
 
 ---
 
-## Follow-Up: Interruptible Inter-Batch Sleep
+## Resolved: Interruptible Inter-Batch Sleep
 
-The current implementation at `extend-challenge-service/pkg/cleanup/cleanup.go:69` uses `time.Sleep(50ms)` for the inter-batch pause. This is not interruptible during shutdown — if a cleanup cycle is mid-batch when the service receives a shutdown signal, it will block for up to 50ms before the goroutine checks `ctx.Done()`.
+The inter-batch pause uses `select` with `ctx.Done()` for clean shutdown interruption (implemented in `cleanup.go`):
 
-**Current code:**
-```go
-time.Sleep(50 * time.Millisecond)
-```
-
-**Recommended improvement:**
 ```go
 select {
 case <-ctx.Done():
     logger.Info("cleanup interrupted", "total_deleted", totalDeleted)
     return
-case <-time.After(50 * time.Millisecond):
+case <-time.After(time.Duration(c.config.BatchPauseMs) * time.Millisecond):
 }
 ```
 
-**Priority:** Low — 50ms is negligible for graceful shutdown. Address if shutdown latency requirements tighten.
+This ensures the cleanup goroutine responds immediately to shutdown signals rather than blocking on a `time.Sleep`.
 
 ---
 

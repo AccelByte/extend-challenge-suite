@@ -234,6 +234,9 @@ challenge_cleanup_errors_total
 
 // Total panic-recovery restarts (counter)
 challenge_cleanup_panics_total
+
+// Unix timestamp of last cleanup heartbeat (gauge)
+challenge_cleanup_last_heartbeat_seconds
 ```
 
 | Metric | Type | Description |
