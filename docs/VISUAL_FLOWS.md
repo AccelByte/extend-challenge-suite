@@ -42,8 +42,8 @@ graph TB
         end
 
         subgraph "Event Handler (gRPC)"
-            GRPC[gRPC Handler<br/>Port 6566]
-            BUF[Buffered Repository<br/>1s flush / Batch UPSERT]
+            GRPC[gRPC Handler<br/>Port 6565]
+            BUF[Buffered Repository<br/>100ms flush / Batch UPSERT]
         end
 
         COMMON[Common Library<br/>Domain Models · Interfaces · Config]
@@ -89,7 +89,7 @@ flowchart LR
     D -->|gRPC call| E[Event Handler]
 
     E --> F{Validate Event}
-    F -->|Invalid| G[Log & Discard]
+    F -->|Invalid| G[Return gRPC error<br/>InvalidArgument]
     F -->|Valid| H[Per-User Mutex<br/>Lock]
 
     H --> I[Cache Lookup<br/>Find affected goals]
@@ -97,7 +97,7 @@ flowchart LR
     J --> K[Write to Buffer<br/>Map deduplication]
     K --> L[Unlock Mutex]
 
-    L --> M{1s Timer<br/>Tick?}
+    L --> M{100ms Timer<br/>Tick?}
     M -->|No| N[Wait]
     M -->|Yes| O[Flush Buffer]
     O --> P[Batch UPSERT<br/>Single SQL query<br/>1000 rows ≈ 20ms]
@@ -188,7 +188,7 @@ sequenceDiagram
         end
 
         alt All retries failed
-            API-->>C: 502 Bad Gateway<br/>"reward grant failed"
+            API-->>C: 500 Internal Server Error<br/>"reward grant failed"
             API->>DB: ROLLBACK
         else Reward granted
             API->>DB: UPDATE status='claimed',<br/>claimed_at=NOW()
@@ -208,7 +208,7 @@ Three patterns for controlling which goals a player works on. Game developers ch
 flowchart LR
     subgraph individual ["Individual Selection (M3)"]
         direction LR
-        I1["Client calls<br/>PUT /goals/:id/active"] --> I2{Goal exists<br/>in config?}
+        I1["Client calls<br/>PUT /v1/challenges/{cid}<br/>/goals/{gid}/active"] --> I2{Goal exists<br/>in config?}
         I2 -->|No| I3[404 Not Found]
         I2 -->|Yes| I4[UPSERT row<br/>is_active = true]
         I4 --> I5[Goal now tracks<br/>events]
@@ -216,15 +216,15 @@ flowchart LR
 
     subgraph batch ["Batch Selection (M4)"]
         direction LR
-        B1[Client calls<br/>POST /goals/batch-select<br/>goalIds: list] --> B2{All IDs valid?}
-        B2 -->|No| B3[400 Bad Request<br/>invalid goal IDs]
+        B1[Client calls<br/>POST /v1/challenges/{cid}<br/>/goals/batch-select<br/>goalIds: list] --> B2{All IDs valid?}
+        B2 -->|No| B3[404 Not Found<br/>invalid goal IDs]
         B2 -->|Yes| B4[BatchUpsertGoalActive<br/>single SQL for all goals]
         B4 --> B5[All goals now<br/>active]
     end
 
     subgraph random ["Random Selection (M4)"]
         direction LR
-        R1[Client calls<br/>POST /goals/random-select<br/>count: N] --> R2[Filter available<br/>goals from config]
+        R1[Client calls<br/>POST /v1/challenges/{cid}<br/>/goals/random-select<br/>count: N] --> R2[Filter available<br/>goals from config]
         R2 --> R3[Exclude already<br/>active goals]
         R3 --> R4[Shuffle &<br/>pick N goals]
         R4 --> R5[BatchUpsertGoalActive<br/>single SQL]
