@@ -431,7 +431,7 @@ groups:
 | `CleanupHighDuration` | Large expired row backlog | Increase `CLEANUP_MAX_BATCHES_PER_CYCLE` temporarily |
 | `CleanupGoroutineStale` | Goroutine crashed or all restarts exhausted | Check logs for panic traces; restart the pod |
 
-**Note on cleanup goroutine liveness:** The `/healthz` endpoint does not fail when the cleanup goroutine is down — it only logs a warning. This is intentional: cleanup is a background optimization, not a critical service function. The service remains fully functional without cleanup; the only consequence is gradual table growth.
+**Note on cleanup goroutine liveness:** When cleanup is enabled, the health check returns `codes.Unavailable` if the cleanup goroutine has not recorded a heartbeat within 2x the cleanup interval (i.e., the goroutine is stale). When cleanup is disabled (`CLEANUP_ENABLED=false`), the health check skips cleanup liveness monitoring entirely (the cleanup interval is set to 0, so the `cleanupInterval > 0` guard bypasses the check).
 
 ---
 
