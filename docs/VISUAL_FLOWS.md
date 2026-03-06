@@ -207,7 +207,7 @@ Three patterns for controlling which goals a player works on. Game developers ch
 ```mermaid
 flowchart TD
     subgraph individual ["Individual Selection (M3)"]
-        I1[Client calls<br/>PUT /goals/{id}/active] --> I2{Goal exists<br/>in config?}
+        I1["Client calls<br/>PUT /goals/:id/active"] --> I2{Goal exists<br/>in config?}
         I2 -->|No| I3[404 Not Found]
         I2 -->|Yes| I4[UPSERT row<br/>is_active = true]
         I4 --> I5[Goal now tracks<br/>events]
