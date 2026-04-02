@@ -80,6 +80,17 @@ services:
       - MOCK_AGS=true
       - MOCK_AGS_LATENCY_MIN_MS=50
       - MOCK_AGS_LATENCY_MAX_MS=200
+      - GOGC=200
+      # M6: Expired row cleanup settings
+      - CLEANUP_ENABLED=${CLEANUP_ENABLED:-true}
+      - CLEANUP_INTERVAL_MINUTES=${CLEANUP_INTERVAL_MINUTES:-60}
+      - CLEANUP_RETENTION_DAYS=${CLEANUP_RETENTION_DAYS:-7}
+      - CLEANUP_BATCH_SIZE=${CLEANUP_BATCH_SIZE:-1000}
+      - CLEANUP_MAX_BATCHES_PER_CYCLE=${CLEANUP_MAX_BATCHES_PER_CYCLE:-100}
+      - CLEANUP_BATCH_PAUSE_MS=${CLEANUP_BATCH_PAUSE_MS:-50}
+      - CLEANUP_INITIAL_MAX_BATCHES=${CLEANUP_INITIAL_MAX_BATCHES:-1000}
+      - CLEANUP_INITIAL_CYCLES=${CLEANUP_INITIAL_CYCLES:-3}
+      - CLEANUP_RETRY_BACKOFF_SECONDS=${CLEANUP_RETRY_BACKOFF_SECONDS:-5}
     deploy:
       resources:
         limits:
@@ -126,6 +137,7 @@ services:
       - BUFFER_FLUSH_INTERVAL=1s
       - BUFFER_SIZE_LIMIT=100000
       - FLUSH_WORKERS=8  # Phase 4: Parallel flush workers (8 workers = 21,600 updates/sec capacity)
+      - GOGC=200
     deploy:
       resources:
         limits:

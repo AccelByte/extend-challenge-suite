@@ -2,7 +2,7 @@
 
 **Project**: AccelByte Extend Challenge Service
 **Started**: 2025-10-13 (M1)
-**Last Updated**: 2026-03-01
+**Last Updated**: 2026-03-02
 
 ---
 
@@ -15,6 +15,7 @@
 | M3 | Per-User Goal Activation Control | Complete | 2025-12-01 |
 | M4 | Batch & Random Goal Selection | Complete | 2026-01-15 |
 | M5 | Time-Based Rotation | Complete | 2026-02-28 |
+| M6 | Expired Row Cleanup | Complete | 2026-03-02 |
 
 ---
 
@@ -50,6 +51,7 @@ design decisions, and test plans:
 - [TECH_SPEC_M3.md](./TECH_SPEC_M3.md) — Per-user goal assignment, initialization, activation
 - [TECH_SPEC_M4.md](./TECH_SPEC_M4.md) — Batch manual selection, random selection
 - [TECH_SPEC_M5.md](./TECH_SPEC_M5.md) — Time-based rotation, ProgressMode, baseline tracking
+- [TECH_SPEC_M6.md](./TECH_SPEC_M6.md) — Expired row cleanup goroutine, GDPR deletion
 
 Performance results:
 - [PERFORMANCE_BASELINE.md](./PERFORMANCE_BASELINE.md) — Current baseline numbers
@@ -62,7 +64,7 @@ Roadmap and future milestones: [MILESTONES.md](./MILESTONES.md)
 
 ## Next Milestone
 
-**M6** — Planned (scope TBD). See [MILESTONES.md](./MILESTONES.md) for backlog items.
+**M7** — Planned (scope TBD). See [MILESTONES.md](./MILESTONES.md) for backlog items.
 
 ---
 

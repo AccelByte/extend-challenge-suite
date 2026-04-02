@@ -173,6 +173,12 @@ See [tests/e2e/QUICK_START.md](tests/e2e/QUICK_START.md) for detailed testing gu
 | [TECH_SPEC_TESTING.md](docs/TECH_SPEC_TESTING.md) | Testing strategy (unit, integration, E2E) |
 | [TECH_SPEC_DEPLOYMENT.md](docs/TECH_SPEC_DEPLOYMENT.md) | Deployment guide (local, Extend, K8s) |
 
+### Visual Diagrams
+
+| Document | Description |
+|----------|-------------|
+| [VISUAL_FLOWS.md](docs/VISUAL_FLOWS.md) | Mermaid flow diagrams (architecture, event pipeline, state machine, claiming, rotation, cleanup) |
+
 ### Additional Guides
 
 | Document | Description |

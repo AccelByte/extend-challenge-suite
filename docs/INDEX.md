@@ -1,7 +1,7 @@
 # AccelByte Extend Challenge Service - Documentation Index
 
-**Version**: M5 (Milestone 5 Complete)
-**Last Updated**: 2026-03-01
+**Version**: M6 (Milestone 6 Complete)
+**Last Updated**: 2026-03-02
 
 This document serves as the primary navigation guide for all technical documentation in the AccelByte Extend Challenge Service platform.
 
@@ -73,6 +73,26 @@ Milestone 5 adds time-based goal rotation with ProgressMode and rotation configu
 | Document | Description | Key Topics |
 |----------|-------------|------------|
 | [**TECH_SPEC_M5.md**](TECH_SPEC_M5.md) | M5 feature specification | ProgressMode (absolute/relative), rotation config, SQL CASE rotation, baseline_value, expires_at |
+
+---
+
+## Technical Specifications (M6 Expired Row Cleanup)
+
+Milestone 6 adds background expired row cleanup and GDPR user deletion.
+
+| Document | Description | Key Topics |
+|----------|-------------|------------|
+| [**TECH_SPEC_M6.md**](TECH_SPEC_M6.md) | M6 feature specification | Cleanup goroutine, GDPR deletion, partial index, Prometheus metrics |
+
+---
+
+## Visual Diagrams
+
+Mermaid flow diagrams for key system flows — renders on GitHub and [mermaid.live](https://mermaid.live).
+
+| Document | Description | Key Topics |
+|----------|-------------|------------|
+| [**VISUAL_FLOWS.md**](VISUAL_FLOWS.md) | Visual flow diagrams (8 Mermaid diagrams) | Architecture, event pipeline, state machine, claiming, rotation, cleanup, GDPR |
 
 ---
 

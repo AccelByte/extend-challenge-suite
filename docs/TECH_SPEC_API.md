@@ -17,6 +17,7 @@
    - [Batch Manual Selection (M4)](#6-batch-manual-selection-m4)
    - [Random Goal Selection (M4)](#7-random-goal-selection-m4)
    - [Get Rotation Status (M5)](#8-get-rotation-status-m5)
+   - [GDPR Data Deletion (M6)](#9-gdpr-data-deletion-m6)
 5. [Rotation Behavior for Clients](#rotation-behavior-for-clients)
 6. [Error Handling](#error-handling)
 7. [HTTP Handler Implementation](#http-handler-implementation)
@@ -1111,6 +1112,56 @@ GET /v1/challenges/{challenge_id}/rotation
 ```
 
 This returns only the rotation schedule and timing, without user progress or goal details. See [Get Rotation Status (M5)](#8-get-rotation-status-m5) for the full endpoint specification.
+
+---
+
+### 9. GDPR Data Deletion (M6)
+
+**Endpoint:** `DELETE /v1/users/me/data`
+
+**Authentication:** Required (JWT Bearer token)
+
+**Description:** Deletes all `user_goal_progress` rows for the authenticated user within the service's namespace. Supports GDPR Right to Erasure compliance. The operation is namespace-scoped (uses the service's configured namespace) and idempotent (calling on a user with no data returns `rowsDeleted: 0`).
+
+**Request:**
+```http
+DELETE /v1/users/me/data
+Authorization: Bearer <JWT_TOKEN>
+```
+
+No request body required. User ID is extracted from the JWT token. Namespace is taken from the service configuration.
+
+**Response (200 OK):**
+```json
+{
+  "userId": "user-12345",
+  "rowsDeleted": 42
+}
+```
+
+**Error Responses:**
+
+| Status | Error Code | Description |
+|--------|-----------|-------------|
+| 401 | `UNAUTHORIZED` | Missing or invalid JWT token |
+| 405 | `METHOD_NOT_ALLOWED` | Wrong HTTP method |
+| 429 | `RATE_LIMITED` | Per-user rate limit exceeded (1 request/minute) |
+| 500 | `INTERNAL_ERROR` | Database error during deletion |
+
+**Behavior Notes:**
+- **Namespace-scoped:** Only deletes rows matching the service's configured namespace
+- **Single-namespace only:** Each service deployment operates in one AGS namespace; cross-namespace deletion is not supported
+- **Idempotent:** Safe to call multiple times; returns `rowsDeleted: 0` if no data exists
+- **Audit logged:** Deletion count is logged with user ID for compliance audit trails
+- **No confirmation required:** Deletion is immediate and irreversible
+- **Rate limited:** Per-user limit of 1 request per minute (per-replica `sync.Map`; not shared across replicas)
+
+**SQL:**
+```sql
+DELETE FROM user_goal_progress WHERE user_id = $1 AND namespace = $2
+```
+
+> **See also:** [TECH_SPEC_M6.md](./TECH_SPEC_M6.md) for expired row cleanup design, GDPR repository interface, and background cleanup architecture.
 
 ---
 

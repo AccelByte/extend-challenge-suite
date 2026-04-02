@@ -217,6 +217,96 @@ challengeAPIRequestDuration.WithLabelValues(
 ).Observe(time.Since(start).Seconds())
 ```
 
+#### M6 Cleanup Metrics
+
+```go
+// Total expired rows deleted by cleanup (counter)
+challenge_cleanup_rows_deleted_total
+
+// Duration of each cleanup cycle (histogram, DefBuckets)
+challenge_cleanup_duration_seconds
+
+// Total cleanup cycles executed (counter)
+challenge_cleanup_cycles_total
+
+// Total cleanup cycle errors (counter)
+challenge_cleanup_errors_total
+
+// Total panic-recovery restarts (counter)
+challenge_cleanup_panics_total
+
+// Unix timestamp of last cleanup heartbeat (gauge)
+challenge_cleanup_last_heartbeat_seconds
+```
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `challenge_cleanup_rows_deleted_total` | Counter | Total expired rows deleted by cleanup |
+| `challenge_cleanup_duration_seconds` | Histogram | Duration of each cleanup cycle |
+| `challenge_cleanup_cycles_total` | Counter | Total cleanup cycles executed |
+| `challenge_cleanup_errors_total` | Counter | Total cleanup cycle errors |
+| `challenge_cleanup_panics_total` | Counter | Total panic-recovery restarts |
+| `challenge_cleanup_last_heartbeat_seconds` | Gauge | Unix timestamp (seconds) of last cleanup heartbeat |
+
+**Package:** `extend-challenge-service/pkg/cleanup/metrics.go`
+**Registration:** Uses `Collectors()` pattern for custom Prometheus registry — see [TECH_SPEC_M6.md](./TECH_SPEC_M6.md#observability) for details.
+
+#### Multi-Replica Considerations
+
+Cleanup metrics are per-replica counters. When running multiple replicas, each independently deletes expired rows (idempotent DELETE is safe for concurrent execution).
+
+**PromQL aggregation:**
+```promql
+# Total rows deleted across all replicas
+sum(challenge_cleanup_rows_deleted_total)
+
+# Total cycles across all replicas
+sum(challenge_cleanup_cycles_total)
+
+# Total errors across all replicas
+sum(challenge_cleanup_errors_total)
+
+# Average cycle duration across replicas
+avg(rate(challenge_cleanup_duration_seconds_sum[5m]) / rate(challenge_cleanup_duration_seconds_count[5m]))
+
+# Total panics across all replicas
+sum(challenge_cleanup_panics_total)
+```
+
+### GDPR Audit Logging
+
+GDPR user data deletion requests produce audit log entries for compliance tracking. Both success and failure paths emit structured logs with `audit=true` for easy filtering.
+
+**Success log:**
+```json
+{
+  "level": "info",
+  "msg": "GDPR deletion completed",
+  "userId": "user-123",
+  "rowsDeleted": 5,
+  "audit": true,
+  "auditAction": "gdpr_user_data_deletion",
+  "namespace": "game-namespace",
+  "requestedAt": "2025-10-17T10:30:00Z"
+}
+```
+
+**Failure log:**
+```json
+{
+  "level": "error",
+  "msg": "GDPR deletion failed",
+  "userId": "user-123",
+  "error": "database connection lost",
+  "audit": true,
+  "auditAction": "gdpr_user_data_deletion_failed",
+  "namespace": "game-namespace",
+  "requestedAt": "2025-10-17T10:30:00Z"
+}
+```
+
+**Recommended retention:** GDPR audit logs should be retained for at least 3 years per regulatory requirements. Configure log aggregation pipeline to filter on `audit=true` and route to a long-retention store.
+
 ### Deferred to M2+
 
 **More detailed metrics (not in M1):**
@@ -295,7 +385,56 @@ groups:
         for: 5m
         annotations:
           summary: "API p95 latency > 500ms"
+
+  - name: challenge_cleanup
+    rules:
+      - alert: CleanupErrorRate
+        expr: rate(challenge_cleanup_errors_total[15m]) > 0
+        for: 15m
+        annotations:
+          summary: "Cleanup goroutine encountering persistent errors"
+          runbook: "Check database connectivity and disk space. Errors cause the cycle to abort and retry on the next interval."
+
+      - alert: CleanupPanicRestart
+        expr: increase(challenge_cleanup_panics_total[1h]) > 0
+        for: 0m
+        annotations:
+          summary: "Cleanup goroutine recovered from a panic"
+          runbook: "Check logs for panic stack trace. The goroutine auto-restarts up to 3 times with exponential backoff. After 3 panics, cleanup stops until the service is restarted."
+
+      - alert: CleanupStalled
+        expr: increase(challenge_cleanup_cycles_total[2h]) == 0
+        for: 2h
+        annotations:
+          summary: "No cleanup cycles executed in 2 hours"
+          runbook: "Verify CLEANUP_ENABLED=true and that the service is running. Check /healthz for liveness. The cleanup goroutine may have exhausted its panic restarts."
+
+      - alert: CleanupHighDuration
+        expr: histogram_quantile(0.95, challenge_cleanup_duration_seconds) > 60
+        for: 10m
+        annotations:
+          summary: "Cleanup cycle p95 duration > 60 seconds"
+          runbook: "Large backlog of expired rows. Consider temporarily increasing CLEANUP_MAX_BATCHES_PER_CYCLE or decreasing CLEANUP_INTERVAL_MINUTES."
+
+      - alert: CleanupGoroutineStale
+        expr: time() - challenge_cleanup_last_heartbeat_seconds > 7200
+        for: 5m
+        annotations:
+          summary: "Cleanup goroutine has not reported a heartbeat in over 2 hours"
+          runbook: "The cleanup goroutine may have crashed or exhausted its restart budget. Check service logs for panic stack traces. Restarting the pod will reset the restart counter."
 ```
+
+#### Cleanup Alert Response Guide
+
+| Alert | Likely Cause | Response |
+|-------|-------------|----------|
+| `CleanupErrorRate` | Database connection issues or disk full | Check PostgreSQL logs and connectivity |
+| `CleanupPanicRestart` | Bug in cleanup code or unexpected nil | Check service logs for panic stack trace |
+| `CleanupStalled` | Service down, cleanup disabled, or all restarts exhausted | Verify service health and CLEANUP_ENABLED setting |
+| `CleanupHighDuration` | Large expired row backlog | Increase `CLEANUP_MAX_BATCHES_PER_CYCLE` temporarily |
+| `CleanupGoroutineStale` | Goroutine crashed or all restarts exhausted | Check logs for panic traces; restart the pod |
+
+**Note on cleanup goroutine liveness:** When cleanup is enabled, the health check returns `codes.Unavailable` if the cleanup goroutine has not recorded a heartbeat within 2x the cleanup interval (i.e., the goroutine is stale). When cleanup is disabled (`CLEANUP_ENABLED=false`), the health check skips cleanup liveness monitoring entirely (the cleanup interval is set to 0, so the `cleanupInterval > 0` guard bypasses the check).
 
 ---
 
